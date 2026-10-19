@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this project, please cite it as below."
+title: "Local Code Tutor: execution-verified fine-tuning of Qwen2.5-Coder-7B and a local coding agent"
+authors:
+  - family-names: Kononenko
+    given-names: Leonid
+version: 0.2.0
+date-released: 2026-10-20
+license: MIT
+repository-code: "https://github.com/pnnnx/local-code-tutor"
+keywords: [llm, qwen2.5-coder, qlora, lora, llama.cpp, local-llm, coding-agent, dataset, interpretability]

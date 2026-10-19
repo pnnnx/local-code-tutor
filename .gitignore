@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.DS_Store
+weights_report/
+*.gguf
+ds/parts/
+ds/batches/
+ds/explain_ru_*.jsonl

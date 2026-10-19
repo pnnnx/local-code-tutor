@@ -1,0 +1,15 @@
+name: Bug report
+description: Something doesn't work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes: {label: What happened, description: "Command, full output, what you expected"}
+    validations: {required: true}
+  - type: input
+    id: env
+    attributes: {label: Environment, placeholder: "macOS 15 / M2 8 GB, Python 3.12, torch 2.x, llama.cpp b…"}
+    validations: {required: true}
+  - type: textarea
+    id: repro
+    attributes: {label: How to reproduce, render: shell}

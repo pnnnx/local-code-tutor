@@ -1,0 +1,11 @@
+name: Feature request
+description: An idea for the pipeline, the eval, wtools or the agent
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes: {label: Problem it solves}
+    validations: {required: true}
+  - type: textarea
+    id: idea
+    attributes: {label: Proposed solution and how it could be verified}

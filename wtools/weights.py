@@ -1,0 +1,493 @@
+"""Анализ весов нейросети: таблицы + PNG-графики. CLI и библиотека (её же зовёт MCP-сервер для loca).
+
+  python3 weights.py inspect model.safetensors            # что внутри: слои, формы, память
+  python3 weights.py stats   model.pt [--tensor NAME]     # статистика по слоям, выбросы, гистограмма
+  python3 weights.py diff    before.pt after.pt           # что изменилось после дообучения
+  python3 weights.py lora    adapter_dir/                 # LoRA: ΔW = B·A·alpha/r, ранг, спектр
+  python3 weights.py quant   model.pt [--bits 4]          # ошибка int8/int4: на тензор / на строку / блоками
+
+Форматы: .safetensors, .pt/.pth/.bin (torch.load(weights_only=True)), папка адаптера PEFT
+(adapter_model.safetensors|bin + adapter_config.json). Графики — в --out (по умолчанию ./weights_report).
+Текст отчёта содержит все числа, нарисованные на графиках: модель в loca графики не видит,
+но может объяснить их по числам.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import re
+from pathlib import Path
+
+import torch
+
+# ---------------------------------------------------------------- оформление графиков
+# палитра и поверхность — эталонная из dataviz (категориальный порядок фиксирован, не по кругу)
+SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"]
+SURFACE, INK, MUTED, GRID = "#fcfcfb", "#1f1f1e", "#6b6a63", "#e6e5df"
+
+
+def _plt():
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    plt.rcParams.update({
+        "figure.facecolor": SURFACE, "axes.facecolor": SURFACE, "savefig.facecolor": SURFACE,
+        "axes.edgecolor": GRID, "axes.labelcolor": MUTED, "xtick.color": MUTED, "ytick.color": MUTED,
+        "text.color": INK, "axes.grid": True, "grid.color": GRID, "grid.linewidth": 0.8,
+        "axes.spines.top": False, "axes.spines.right": False, "font.size": 9,
+        "axes.titlesize": 11, "axes.titleweight": "bold", "axes.titlelocation": "left",
+    })
+    return plt
+
+
+def _save(fig, out: Path, name: str) -> str:
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / name
+    fig.tight_layout()
+    fig.savefig(path, dpi=130)
+    import matplotlib.pyplot as plt
+    plt.close(fig)
+    return str(path)
+
+
+def _depth_axis(ax, names: list[str], values: list[float] | None = None, fmt=lambda v: f"{v:.3g}") -> None:
+    """Подписи по номерам слоёв вместо индексов тензоров + подпись максимума (одна, не на каждой точке)."""
+    pos, labels, last = [], [], None
+    for i, n in enumerate(names):
+        m = re.search(r"\.(\d+)\.", "." + n + ".")
+        layer = m.group(1) if m else None
+        if layer is not None and layer != last:
+            pos.append(i)
+            labels.append(f"L{layer}")
+        last = layer
+    if pos:
+        step = max(1, len(pos) // 12)
+        ax.set_xticks(pos[::step], labels[::step])
+        ax.set_xlabel("слой модели (точка — одна матрица весов)")
+    if values:
+        i = max(range(len(values)), key=lambda k: values[k])
+        ax.annotate(f"{compact(names[i])}: {fmt(values[i])}", (i, values[i]), xytext=(6, 4),
+                    textcoords="offset points", fontsize=8, color=INK)
+        ax.set_ylim(0, max(values) * 1.18 or 1)
+
+
+def _short(name: str, n: int = 38) -> str:
+    return name if len(name) <= n else "…" + name[-(n - 1):]
+
+
+# ---------------------------------------------------------------- загрузка
+def load_state(path: str | Path) -> dict[str, torch.Tensor]:
+    p = Path(path).expanduser()
+    if p.is_dir():
+        for cand in ("adapter_model.safetensors", "model.safetensors", "adapter_model.bin",
+                     "pytorch_model.bin"):
+            if (p / cand).exists():
+                p = p / cand
+                break
+        else:
+            raise SystemExit(f"В папке {p} нет *.safetensors / *.bin с весами")
+    if p.suffix == ".safetensors":
+        from safetensors.torch import load_file
+        state = load_file(str(p))
+    elif p.suffix == ".gguf":
+        raise SystemExit("GGUF пока не поддерживается: анализируйте исходные safetensors / адаптер LoRA")
+    else:
+        state = torch.load(str(p), map_location="cpu", weights_only=True)
+        for key in ("state_dict", "model", "model_state_dict"):
+            if isinstance(state, dict) and key in state and isinstance(state[key], dict):
+                state = state[key]
+    if not isinstance(state, dict):
+        raise SystemExit(f"{p}: ожидался словарь тензоров (state_dict), а не {type(state).__name__}")
+    return {k: v for k, v in state.items() if isinstance(v, torch.Tensor)}
+
+
+def _float(t: torch.Tensor) -> torch.Tensor:
+    return t.detach().to(torch.float32)
+
+
+def _group(name: str, depth: int = 2) -> str:
+    parts = name.split(".")
+    # model.layers.12.mlp.up_proj.weight → model.layers.12 ; fc1.weight → fc1
+    for i, part in enumerate(parts):
+        if part.isdigit():
+            return ".".join(parts[: i + 1])
+    return ".".join(parts[:depth]) if len(parts) > depth else parts[0]
+
+
+def _natkey(name: str):
+    """Порядок модели: эмбеддинги, слои по номеру (2 < 10), голова в конце."""
+    first = 0 if "embed" in name else 2 if ("lm_head" in name or name.startswith(("norm", "model.norm"))) else 1
+    return (first, [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", name)])
+
+
+def ordered(names) -> list[str]:
+    return sorted(names, key=_natkey)
+
+
+def compact(name: str) -> str:
+    """model.layers.12.self_attn.q_proj.weight → L12.q_proj; lm_head.weight → lm_head."""
+    m = re.search(r"\.(\d+)\.", "." + name + ".")
+    kind = _kind(name)
+    return f"L{m.group(1)}.{kind}" if m else kind
+
+
+def _fmt(x: float) -> str:
+    if x == 0:
+        return "0"
+    a = abs(x)
+    if a >= 1e4 or a < 1e-3:
+        return f"{x:.2e}"
+    return f"{x:.4g}"
+
+
+def _table(head: list[str], rows: list[list]) -> str:
+    out = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
+    out += ["| " + " | ".join(str(c) for c in r) + " |" for r in rows]
+    return "\n".join(out)
+
+
+# ---------------------------------------------------------------- inspect
+def inspect(path, out="weights_report", top: int = 40) -> tuple[str, list[str]]:
+    state = load_state(path)
+    total = sum(t.numel() for t in state.values())
+    by_dtype: dict[str, int] = {}
+    groups: dict[str, int] = {}
+    for name, t in state.items():
+        by_dtype[str(t.dtype).replace("torch.", "")] = by_dtype.get(str(t.dtype).replace("torch.", ""), 0) + t.numel()
+        groups[_group(name)] = groups.get(_group(name), 0) + t.numel()
+    rows = [[_short(n, 50), "×".join(map(str, t.shape)) or "скаляр", str(t.dtype).replace("torch.", ""),
+             f"{t.numel():,}".replace(",", " "), f"{t.numel() * t.element_size() / 2**20:.2f}"]
+            for n, t in list(state.items())[:top]]
+    mem = {b: total * b / 8 / 2**30 for b in (32, 16, 8, 4)}
+    text = [f"# Модель: {path}", f"Тензоров: {len(state)} · параметров: {total:,}".replace(",", " "),
+            "Типы: " + ", ".join(f"{k} — {v:,}".replace(",", " ") for k, v in by_dtype.items()),
+            "Память только на веса: " + " · ".join(f"{'fp' if b >= 16 else 'int'}{b}: {mem[b]:.2f} ГБ" for b in mem),
+            "", f"Тензоры (первые {min(top, len(state))} из {len(state)}):", _table(["имя", "форма", "dtype", "параметров", "МБ"], rows)]
+    top_groups = sorted(groups.items(), key=lambda kv: -kv[1])[:15]
+    text += ["", "Крупнейшие блоки (доля параметров):",
+             _table(["блок", "параметров", "доля"],
+                    [[g, f"{n:,}".replace(",", " "), f"{100 * n / total:.1f}%"] for g, n in top_groups])]
+    plt = _plt()
+    fig, ax = plt.subplots(figsize=(7, 0.32 * len(top_groups) + 1.2))
+    labels = [_short(g, 34) for g, _ in top_groups][::-1]
+    vals = [100 * n / total for _, n in top_groups][::-1]
+    ax.barh(labels, vals, color=SERIES[0], height=0.6)
+    ax.set_xlabel("доля параметров, %")
+    ax.set_title("Где лежат параметры модели")
+    ax.grid(axis="y", visible=False)
+    for y, v in enumerate(vals):
+        ax.text(v, y, f" {v:.1f}%", va="center", color=MUTED, fontsize=8)
+    png = _save(fig, Path(out), "inspect_blocks.png")
+    return "\n".join(text), [png]
+
+
+# ---------------------------------------------------------------- stats
+def tensor_stats(t: torch.Tensor) -> dict:
+    x = _float(t).flatten()
+    n = x.numel()
+    mean, std = x.mean().item(), x.std().item() if n > 1 else 0.0
+    out = {"numel": n, "mean": mean, "std": std, "absmax": x.abs().max().item(),
+           "rms": x.pow(2).mean().sqrt().item(), "l2": x.norm().item(),
+           "near_zero": (x.abs() < 1e-6).float().mean().item(),
+           "outliers": int(((x - mean).abs() > 6 * std).sum().item()) if std > 0 else 0}
+    if t.dim() == 2 and t.shape[0] > 1:
+        rows = _float(t).norm(dim=1)
+        out["dead_rows"] = int((rows < 1e-8).sum().item())
+    return out
+
+
+def stats(path, out="weights_report", tensor: str | None = None, top: int = 30) -> tuple[str, list[str]]:
+    state = {k: v for k, v in load_state(path).items() if v.is_floating_point() and v.numel() > 1}
+    names = ordered(state)
+    st = {n: tensor_stats(state[n]) for n in names}
+    order = sorted(names, key=lambda n: -st[n]["rms"])
+    rows = [[_short(n, 46), _fmt(st[n]["mean"]), _fmt(st[n]["std"]), _fmt(st[n]["rms"]), _fmt(st[n]["absmax"]),
+             f"{100 * st[n]['near_zero']:.1f}%", st[n]["outliers"], st[n].get("dead_rows", "—")]
+            for n in order[:top]]
+    flags = []
+    for n in names:
+        s = st[n]
+        if s["outliers"]:
+            flags.append(f"- {n}: {s['outliers']} выбросов дальше 6σ (|max| = {_fmt(s['absmax'])}, σ = {_fmt(s['std'])}) — "
+                         "такие тензоры сильнее всего страдают при квантовании per-tensor")
+        if s.get("dead_rows"):
+            flags.append(f"- {n}: {s['dead_rows']} нулевых строк — «мёртвые» нейроны")
+        if s["near_zero"] > 0.5:
+            flags.append(f"- {n}: {100 * s['near_zero']:.0f}% значений ≈ 0 — тензор разрежен")
+    text = [f"# Статистика весов: {path}", f"Тензоров с плавающей точкой: {len(names)}",
+            f"Сортировка по RMS (типичный размер веса), первые {min(top, len(names))}:",
+            _table(["тензор", "mean", "std", "RMS", "|max|", "≈0", "выбросы>6σ", "нулевых строк"], rows),
+            "", "Что бросается в глаза:", *(flags[:25] or ["- ничего необычного: выбросов, нулевых строк и разреженности нет"])]
+    pngs = []
+    plt = _plt()
+    # 1) RMS по тензорам в порядке модели: видно, как масштаб весов меняется по глубине
+    weights = [n for n in names if state[n].dim() >= 2] or names
+    fig, ax = plt.subplots(figsize=(8, 3.2))
+    rms = [st[n]["rms"] for n in weights]
+    ax.plot(range(len(weights)), rms, color=SERIES[0], linewidth=2, marker="o", markersize=3)
+    ax.set_xlabel("матрица весов в порядке модели")
+    ax.set_ylabel("RMS веса")
+    ax.set_title("Масштаб весов по глубине модели")
+    _depth_axis(ax, weights, rms, _fmt)
+    pngs.append(_save(fig, Path(out), "stats_rms_by_layer.png"))
+    text += ["", "График stats_rms_by_layer.png — RMS по матрицам в порядке модели:",
+             ", ".join(f"{compact(n)}={_fmt(st[n]['rms'])}" for n in weights[:60])]
+    # 2) гистограмма одного тензора (по умолчанию — с наибольшим |max|/σ, самый «хвостатый»)
+    pick = tensor if tensor in state else max(names, key=lambda n: st[n]["absmax"] / (st[n]["std"] or 1))
+    x = _float(state[pick]).flatten()
+    if x.numel() > 2_000_000:
+        x = x[torch.randperm(x.numel(), generator=torch.Generator().manual_seed(0))[:2_000_000]]
+    fig, ax = plt.subplots(figsize=(7, 3.2))
+    ax.hist(x.numpy(), bins=120, color=SERIES[0], log=True)
+    s = st[pick]
+    for k in (-6, 6):
+        ax.axvline(s["mean"] + k * s["std"], color=MUTED, linewidth=1, linestyle="--")
+    ax.set_title(f"Распределение весов: {_short(pick, 50)}")
+    ax.set_xlabel("значение веса (пунктир — ±6σ)")
+    ax.set_ylabel("сколько весов (лог. шкала)")
+    pngs.append(_save(fig, Path(out), "stats_hist.png"))
+    q = torch.quantile(x, torch.tensor([0.001, 0.5, 0.999])).tolist() if x.numel() < 16_000_000 else [float("nan")] * 3
+    text += ["", f"График stats_hist.png — гистограмма {pick}: mean={_fmt(s['mean'])}, σ={_fmt(s['std'])}, "
+                 f"|max|={_fmt(s['absmax'])} ({s['absmax'] / (s['std'] or 1):.1f}σ), квантили 0.1%/50%/99.9%: "
+                 + " / ".join(_fmt(v) for v in q)]
+    return "\n".join(text), pngs
+
+
+# ---------------------------------------------------------------- diff
+def diff(path_a, path_b, out="weights_report", top: int = 20) -> tuple[str, list[str]]:
+    a, b = load_state(path_a), load_state(path_b)
+    common = [n for n in ordered(a) if n in b and a[n].shape == b[n].shape and a[n].is_floating_point()]
+    reshaped = [n for n in a if n in b and a[n].shape != b[n].shape]
+    only_a, only_b = [n for n in a if n not in b], [n for n in b if n not in a]
+    res = []
+    for n in common:
+        x, y = _float(a[n]).flatten(), _float(b[n]).flatten()
+        d = (y - x).norm().item()
+        base = x.norm().item()
+        cos = torch.nn.functional.cosine_similarity(x, y, dim=0).item() if base > 0 and y.norm() > 0 else float("nan")
+        res.append((n, d, d / base if base > 0 else float("inf"), cos))
+    changed = [r for r in res if r[1] > 0]
+    order = sorted(changed, key=lambda r: -r[2])
+    text = [f"# Сравнение: {path_a} → {path_b}",
+            f"Общих тензоров: {len(common)} · изменились: {len(changed)} · без изменений: {len(common) - len(changed)}"]
+    if reshaped:
+        text.append(f"Форма поменялась: {', '.join(reshaped[:10])}")
+    if only_a or only_b:
+        text.append(f"Только в первом: {len(only_a)} · только во втором: {len(only_b)} "
+                    f"(например: {', '.join((only_b or only_a)[:5])})")
+    text += ["", "Метрики: ‖ΔW‖ — норма разницы; относительное изменение ‖ΔW‖/‖W‖ — главное, оно сравнимо "
+                 "между слоями разного размера; cos — косинус между весами до и после (1.0 — направление не изменилось).",
+             _table(["тензор", "‖ΔW‖", "‖ΔW‖/‖W‖", "cos"],
+                    [[_short(n, 50), _fmt(d), f"{100 * r:.3f}%", f"{c:.6f}"] for n, d, r, c in order[:top]])]
+    groups: dict[str, list[float]] = {}
+    for n, d, r, c in changed:
+        groups.setdefault(_kind(n), []).append(r)
+    if groups:
+        text += ["", "По типу модуля (среднее относительное изменение):",
+                 ", ".join(f"{k}: {100 * sum(v) / len(v):.3f}% ({len(v)} шт.)"
+                           for k, v in sorted(groups.items(), key=lambda kv: -sum(kv[1]) / len(kv[1])))]
+    pngs = []
+    if changed:
+        plt = _plt()
+        shown = order[:top][::-1]
+        fig, ax = plt.subplots(figsize=(7.5, 0.3 * len(shown) + 1.3))
+        ax.barh([_short(n, 40) for n, *_ in shown], [100 * r for _, _, r, _ in shown], color=SERIES[0], height=0.6)
+        ax.set_xlabel("относительное изменение ‖ΔW‖/‖W‖, %")
+        ax.set_title(f"Какие слои изменились сильнее всего (топ-{len(shown)})")
+        ax.grid(axis="y", visible=False)
+        pngs.append(_save(fig, Path(out), "diff_top.png"))
+        series = [r for r in res if a[r[0]].dim() >= 2] or res
+        fig, ax = plt.subplots(figsize=(8, 3))
+        vals = [100 * r for _, _, r, _ in series]
+        ax.plot(range(len(series)), vals, color=SERIES[0], linewidth=2, marker="o", markersize=3)
+        ax.set_xlabel("матрица весов в порядке модели")
+        ax.set_ylabel("‖ΔW‖/‖W‖, %")
+        ax.set_title("Изменение по глубине модели")
+        _depth_axis(ax, [n for n, *_ in series], vals, lambda v: f"{v:.2f}%")
+        pngs.append(_save(fig, Path(out), "diff_by_depth.png"))
+        text += ["", "График diff_by_depth.png — изменение по глубине (в %): "
+                 + ", ".join(f"{compact(n)}={100 * r:.3f}" for n, _, r, _ in series[:80])]
+    return "\n".join(text), pngs
+
+
+def _kind(name: str) -> str:
+    """Тип модуля трансформера по имени: q_proj, up_proj, lm_head, embed…"""
+    parts = [p for p in name.split(".") if p not in ("weight", "bias", "default", "base_layer")
+             and not p.isdigit() and not p.startswith("lora_")]
+    return parts[-1] if parts else name
+
+
+# ---------------------------------------------------------------- lora
+def lora(path, out="weights_report", alpha: float | None = None, r: int | None = None,
+         top: int = 25) -> tuple[str, list[str]]:
+    p = Path(path).expanduser()
+    state = load_state(p)
+    cfg_path = (p if p.is_dir() else p.parent) / "adapter_config.json"
+    cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+    rank = r or cfg.get("r")
+    alpha = alpha or cfg.get("lora_alpha")
+    pairs: dict[str, dict[str, torch.Tensor]] = {}
+    for name, t in state.items():
+        m = re.match(r"(.*)\.lora_([AB])(?:\.default)?(?:\.weight)?$", name)
+        if m:
+            pairs.setdefault(m.group(1), {})[m.group(2)] = t
+    mods = {k: v for k, v in pairs.items() if "A" in v and "B" in v}
+    if not mods:
+        raise SystemExit("Не нашёл пар lora_A / lora_B: это точно адаптер LoRA (PEFT)?")
+    rows, per_kind, spectra = [], {}, {}
+    for name in ordered(mods):
+        ab = mods[name]
+        A, B = _float(ab["A"]), _float(ab["B"])            # A: r×in, B: out×r
+        rr = A.shape[0]
+        scale = (alpha / (rank or rr)) if alpha else 1.0
+        # сингулярные числа ΔW = B·A через QR: r×r вместо out×in — быстро и для 7B
+        qb, rb = torch.linalg.qr(B)
+        qa, ra = torch.linalg.qr(A.T)
+        s = torch.linalg.svdvals(rb @ ra.T) * scale
+        fro = s.norm().item()
+        pnorm = s / s.sum() if s.sum() > 0 else s
+        eff = math.exp(-(pnorm[pnorm > 0] * pnorm[pnorm > 0].log()).sum().item()) if s.sum() > 0 else 0.0
+        top1 = (s[0] ** 2 / (s ** 2).sum()).item() if fro > 0 else 0.0
+        kind = _kind(name)
+        rows.append((name, kind, tuple(B.shape[:1]) + tuple(A.shape[1:]), rr, fro, eff, top1))
+        per_kind.setdefault(kind, []).append(fro)
+        spectra.setdefault(kind, []).append((s / s[0]).tolist() if s[0] > 0 else s.tolist())
+    order = sorted(rows, key=lambda x: -x[4])
+    zero_b = sum(1 for x in rows if x[4] == 0)
+    text = [f"# LoRA-адаптер: {path}",
+            f"Модулей с LoRA: {len(rows)} · r = {rank or rows[0][3]} · alpha = {alpha if alpha else '— (масштаб 1)'}"
+            + (f" · scale = alpha/r = {alpha / (rank or rows[0][3]):.3g}" if alpha else ""),
+            "ΔW = B·A·scale — добавка к весу базовой модели. ‖ΔW‖ — насколько сильно адаптер меняет модуль; "
+            "эффективный ранг — сколько направлений реально используется из r (exp энтропии сингулярных чисел); "
+            "доля σ₁² — сколько «энергии» в главном направлении.",
+            _table(["модуль", "тип", "форма ΔW", "r", "‖ΔW‖", "эфф. ранг", "доля σ₁²"],
+                   [[_short(n, 44), k, "×".join(map(str, sh)), rr, _fmt(f), f"{e:.2f}", f"{100 * t:.0f}%"]
+                    for n, k, sh, rr, f, e, t in order[:top]])]
+    if zero_b:
+        text.append(f"\n⚠ У {zero_b} модулей ΔW = 0 (B — нули): адаптер не обучался или это свежая инициализация.")
+    text += ["", "По типу модуля (средняя ‖ΔW‖): " + ", ".join(
+        f"{k}: {_fmt(sum(v) / len(v))} ({len(v)} шт.)" for k, v in sorted(per_kind.items(), key=lambda kv: -sum(kv[1]) / len(kv[1])))]
+    plt = _plt()
+    pngs = []
+    kinds = sorted(per_kind, key=lambda k: -sum(per_kind[k]) / len(per_kind[k]))
+    color = {k: SERIES[i] if i < len(SERIES) else MUTED for i, k in enumerate(kinds)}
+    fig, ax = plt.subplots(figsize=(8, 3.2))
+    for i, (n, k, *_rest) in enumerate(rows):
+        ax.bar(i, _rest[2], color=color[k], width=0.8)
+    from matplotlib.patches import Patch
+    ax.legend(handles=[Patch(color=color[k], label=k) for k in kinds[:len(SERIES)]]
+              + ([Patch(color=MUTED, label="другие")] if len(kinds) > len(SERIES) else []),
+              frameon=False, fontsize=8, ncol=min(4, len(kinds)))
+    ax.set_xlabel("модуль в порядке модели")
+    ax.set_ylabel("‖ΔW‖")
+    _depth_axis(ax, [x[0] for x in rows])
+    ax.set_ylim(0, max(x[4] for x in rows) * 1.3 or 1)          # место для легенды над столбцами
+    ax.set_title("Насколько адаптер меняет каждый модуль")
+    pngs.append(_save(fig, Path(out), "lora_norms.png"))
+    fig, ax = plt.subplots(figsize=(6.5, 3.2))
+    for k in kinds[:len(SERIES)]:
+        arr = torch.tensor([sp + [0.0] * (max(map(len, spectra[k])) - len(sp)) for sp in spectra[k]]).mean(0)
+        ax.plot(range(1, len(arr) + 1), arr.tolist(), color=color[k], linewidth=2, marker="o", markersize=3, label=k)
+    ax.set_xlabel("номер сингулярного числа")
+    ax.set_ylabel("σᵢ / σ₁ (среднее по модулям)")
+    ax.set_ylim(0, 1.05)
+    ax.set_title("Спектр ΔW: сколько направлений использует адаптер")
+    ax.legend(frameon=False, fontsize=8)
+    pngs.append(_save(fig, Path(out), "lora_spectrum.png"))
+    text += ["", "График lora_spectrum.png — средний нормированный спектр σᵢ/σ₁ по типам: " + "; ".join(
+        f"{k}: " + ", ".join(f"{v:.2f}" for v in torch.tensor(
+            [sp + [0.0] * (max(map(len, spectra[k])) - len(sp)) for sp in spectra[k]]).mean(0).tolist()[:8])
+        for k in kinds[:len(SERIES)])]
+    return "\n".join(text), pngs
+
+
+# ---------------------------------------------------------------- quant
+def _qdq(x: torch.Tensor, bits: int, mode: str, block: int = 32) -> torch.Tensor:
+    """Симметричное квантование и обратно: per-tensor / per-row / блоками по `block` (идея Q4_0/Q8_0 в GGUF)."""
+    qmax = 2 ** (bits - 1) - 1
+    if mode == "tensor":
+        s = x.abs().max().clamp(min=1e-12) / qmax
+        return (x / s).round().clamp(-qmax - 1, qmax) * s
+    if mode == "row":
+        x2 = x.reshape(x.shape[0], -1)
+        s = x2.abs().amax(dim=1, keepdim=True).clamp(min=1e-12) / qmax
+        return ((x2 / s).round().clamp(-qmax - 1, qmax) * s).reshape(x.shape)
+    flat = x.flatten()
+    pad = (-flat.numel()) % block
+    f = torch.cat([flat, flat.new_zeros(pad)]).reshape(-1, block)
+    s = f.abs().amax(dim=1, keepdim=True).clamp(min=1e-12) / qmax
+    return ((f / s).round().clamp(-qmax - 1, qmax) * s).flatten()[: flat.numel()].reshape(x.shape)
+
+
+def quant(path, out="weights_report", bits: int = 4, top: int = 20) -> tuple[str, list[str]]:
+    state = {k: v for k, v in load_state(path).items() if v.is_floating_point() and v.dim() >= 2}
+    res = []
+    for n in ordered(state):
+        t = state[n]
+        x = _float(t)
+        norm = x.norm().item() or 1.0
+        errs = {m: ((_qdq(x, bits, m) - x).norm().item() / norm) for m in ("tensor", "row", "block")}
+        st = tensor_stats(t)
+        res.append((n, errs, st["absmax"] / (st["std"] or 1)))
+    order = sorted(res, key=lambda r: -r[1]["tensor"])
+    mean = {m: sum(r[1][m] for r in res) / len(res) for m in ("tensor", "row", "block")} if res else {}
+    text = [f"# Квантование int{bits}: {path}",
+            "Относительная ошибка ‖W − deq(q(W))‖/‖W‖ для трёх способов выбрать масштаб: один на тензор, "
+            "свой на каждую строку, свой на каждый блок из 32 весов (так делают форматы GGUF Q4_0/Q8_0). "
+            "Чем мельче группа, тем меньше вредит один выброс.",
+            "Среднее по матрицам: " + " · ".join(f"{m}: {100 * v:.2f}%" for m, v in mean.items()),
+            "", f"Хуже всего переносят квантование (по per-tensor), первые {min(top, len(order))}:",
+            _table(["тензор", "per-tensor", "per-row", "блоки 32", "|max|/σ"],
+                   [[_short(n, 46), f"{100 * e['tensor']:.2f}%", f"{100 * e['row']:.2f}%", f"{100 * e['block']:.2f}%",
+                     f"{k:.1f}"] for n, e, k in order[:top]])]
+    pngs = []
+    if res:
+        plt = _plt()
+        fig, ax = plt.subplots(figsize=(8, 3.3))
+        labels = {"tensor": "один масштаб на тензор", "row": "на строку", "block": "блоки по 32"}
+        for i, m in enumerate(("tensor", "row", "block")):
+            ax.plot(range(len(res)), [100 * r[1][m] for r in res], color=SERIES[i], linewidth=2,
+                    marker="o", markersize=3, label=labels[m])
+        ax.set_xlabel("матрица весов в порядке модели")
+        ax.set_ylabel("относительная ошибка, %")
+        _depth_axis(ax, [r[0] for r in res], [100 * r[1]["tensor"] for r in res], lambda v: f"{v:.1f}%")
+        ax.set_title(f"Ошибка int{bits} по слоям")
+        ax.legend(frameon=False, fontsize=8)
+        pngs.append(_save(fig, Path(out), f"quant_int{bits}.png"))
+    return "\n".join(text), pngs
+
+
+# ---------------------------------------------------------------- CLI
+COMMANDS = {"inspect": inspect, "stats": stats, "diff": diff, "lora": lora, "quant": quant}
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("command", choices=COMMANDS)
+    ap.add_argument("paths", nargs="+")
+    ap.add_argument("--out", default="weights_report")
+    ap.add_argument("--tensor")
+    ap.add_argument("--bits", type=int, default=4)
+    ap.add_argument("--top", type=int)
+    args = ap.parse_args(argv)
+    kw = {"out": args.out}
+    if args.top:
+        kw["top"] = args.top
+    if args.command == "diff":
+        if len(args.paths) != 2:
+            raise SystemExit("diff: нужны два файла — до и после")
+        text, pngs = diff(args.paths[0], args.paths[1], **kw)
+    elif args.command == "stats":
+        text, pngs = stats(args.paths[0], tensor=args.tensor, **kw)
+    elif args.command == "quant":
+        text, pngs = quant(args.paths[0], bits=args.bits, **kw)
+    else:
+        text, pngs = COMMANDS[args.command](args.paths[0], **kw)
+    print(text)
+    if pngs:
+        print("\nГрафики:\n" + "\n".join(f"- {p}" for p in pngs))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,19 @@
+name: Small-model failure mode
+description: A 7B (or smaller) model does something wrong inside an agent — help us measure and fix it
+labels: [failure-mode]
+body:
+  - type: input
+    id: model
+    attributes: {label: Model and quantization, placeholder: "Qwen2.5-Coder-7B-Instruct Q4_K_M, llama.cpp"}
+    validations: {required: true}
+  - type: textarea
+    id: prompt
+    attributes: {label: Exact request, render: text}
+    validations: {required: true}
+  - type: textarea
+    id: transcript
+    attributes: {label: What the model did (transcript / tool calls), render: text}
+    validations: {required: true}
+  - type: textarea
+    id: expected
+    attributes: {label: What a correct run looks like}
