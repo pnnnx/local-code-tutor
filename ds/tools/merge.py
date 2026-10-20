@@ -28,16 +28,33 @@ def main(rerun=True):
     print("всего строк:", len(rows))
 
     # 1) повторный прогон: вывод должен совпасть с записанным
-    mismatch = []
+    mismatch, unchecked = [], Counter()
     if rerun:
+        import shutil
+        from runner import missing_modules
+        tools = {"javascript": "node", "c": "gcc", "cpp": "g++", "java": "javac"}
+        absent = {lang for lang, exe in tools.items() if not shutil.which(exe)}
+        mod_cache: dict = {}
         for r in rows:
             if r["observed_output"] is None:
                 continue
             code = r.get("code") or user_code(r["messages"][0]["content"])
+            # на этой машине нечем проверить — не выбрасываем: пример уже проверен при добавлении
+            if r["lang"] in absent:
+                unchecked[f"нет {tools[r['lang']]}"] += 1
+                continue
+            if r["lang"] == "python":
+                mods = set(re.findall(r"^\s*(?:import|from)\s+(\w+)", code, re.M))
+                miss = [m for m in mods if mod_cache.setdefault(m, bool(missing_modules({m})))]
+                if miss:
+                    unchecked[f"нет модуля {','.join(sorted(miss))}"] += 1
+                    continue
             again = run_code(r["lang"], code, r.get("stdin"))
             if (again or "").strip() != (r["observed_output"] or "").strip():
                 mismatch.append(r["id"])
         print("несовпадений при повторном запуске:", len(mismatch), mismatch[:20])
+        if unchecked:
+            print("не перепроверено (нечем запустить здесь, проверены при добавлении):", dict(unchecked))
 
     # 2) дубликаты по «скелету» кода (имена/строки/числа обезличены) — по всему датасету
     from dedup import Index, row_code

@@ -39,11 +39,11 @@ can be that tutor — if the system around it is built so the model doesn't have
 
 | Goal | Target | Now |
 |---|---|---|
-| Key facts on held-out questions | ≥ 13 / 15 | 9 / 15 |
+| Key facts on held-out questions | ≥ 15 / 18 | 13 / 18 |
 | Agent asks instead of guessing on vague requests | 4 / 4 | ✅ 4 / 4 |
 | "What will this print?" answered from a real run | 100 % | ✅ 2 / 2 |
 | Multi-file tasks finished by the plan, not by luck | 4 / 4 hard tasks | measuring |
-| Verified examples, incl. Java, SQL analytics, PyTorch | ≥ 2,000 | 900+ |
+| Verified examples, incl. Java, SQL analytics, PyTorch | ≥ 2,000 | 954 |
 | Runs fully offline on a MacBook Air M2 8 GB | yes | yes |
 
 **Non-goals:** competing with frontier cloud models on large refactors or deep reasoning; being a
@@ -54,14 +54,14 @@ general-purpose chatbot. The target is narrow on purpose — *understanding code
 <table>
 <tr><td valign="top" width="52%">
 
-**Release `v0.2.0`**
+**Release `v0.3.0`**
 
 | Component | Version | Status |
 |---|---|---|
-| **local-code-tutor** (this repo) | `0.2.0` | ![beta](https://img.shields.io/badge/-beta-2a78d6) |
+| **local-code-tutor** (this repo) | `0.3.0` | ![beta](https://img.shields.io/badge/-beta-2a78d6) |
 | **[loca](https://github.com/pnnnx/loca)** agent | `0.1.0` · 98 tests | ![beta](https://img.shields.io/badge/-beta-2a78d6) |
 | **wtools** weight analysis | `0.1.0` · 5 commands · MCP | ![beta](https://img.shields.io/badge/-beta-2a78d6) |
-| Fine-tuned model **my-coder** | `v2` · LoRA r=32 | ![experimental](https://img.shields.io/badge/-experimental-eb6834) |
+| Fine-tuned model **my-coder** | `v3` · LoRA r=32 · 954 + 300 examples | ![experimental](https://img.shields.io/badge/-experimental-eb6834) |
 | Dataset format | `v1` · 7 kinds · 6 languages | ![stable](https://img.shields.io/badge/-stable-1baf7a) |
 | Held-out eval | `v1` · 18 questions · auto-scored | ![stable](https://img.shields.io/badge/-stable-1baf7a) |
 
@@ -85,7 +85,7 @@ general-purpose chatbot. The target is narrow on purpose — *understanding code
 | Metric | Value |
 |---|---|
 | Verified training examples | **900+** and growing (target ≈ 2,600) across 20+ categories |
-| Held-out key facts, base → fine-tuned | **8 / 15 → 9 / 15** ([details](docs/RESULTS.md)) |
+| Held-out key facts, base → v2 → v3 | **8 / 18 → 9 / 15 → 13 / 18** ([details](docs/RESULTS.md)) |
 | Agent failure mode #8 "guesses instead of asking" | **1 / 4 → 4 / 4** on real Qwen2.5-Coder-7B |
 | Agent failure mode #4 "can't run code in its head" | **0 / 1 → 2 / 2** on real Qwen2.5-Coder-7B |
 | Cost | **$0** — free Kaggle GPU, local inference |
@@ -136,16 +136,22 @@ harness that runs the same requests before and after each fix (`bench/probe.py` 
   asked about `tricky.py`, the model replied *"that file doesn't exist"* without calling a single tool.
   Fix: the agent runs the code itself and puts the source + real output in context before the model speaks.
 
-### 2. Fine-tuning v2: it learned the *form*, not the *facts*
+### 2. Fine-tuning: v2 learned the *form*, v3 started getting the *facts*
 
-![held-out eval](assets/eval_v2_en.png)
+![held-out eval](assets/eval_v3_en.png)
 
-762 verified examples + 300 general ones, 2 epochs, LoRA r=32, one free Kaggle T4.
-Key-fact score: **8/15 → 9/15**. The tuned model answers exactly in the target style (verdict first,
-precise mechanism name, fixed code) — **but confidently invents concrete outputs**: `[3, 3, 3]` instead
-of `[2, 2, 2]` for late-binding lambdas, "6" instead of 14 for an exhausted generator.
-That single observation drove the design above: *outputs must come from execution, not from weights.*
-Analysis and the v3 plan: [docs/RESULTS.md](docs/RESULTS.md).
+| | base + prompt | v2 (762 examples) | v3 (954 examples) |
+|---|:-:|:-:|:-:|
+| Key facts, 18 held-out questions | 8 / 18 | 9 / 15* | **13 / 18** |
+
+<sub>* v2 was evaluated before PyTorch questions e16–e18 were added.</sub>
+
+**v2** answered exactly in the target style (verdict first, precise mechanism, fixed code) — **but
+confidently invented outputs**: `[3, 3, 3]` instead of `[2, 2, 2]`, "6" instead of 14. **v3** added
+pandas, SQLite analytics, PyTorch and weight-analysis examples: late binding is now right, the SQL
+answer uses SQLite's `STRFTIME` + `LAG`, the PyTorch questions pass. It **still can't do arithmetic in
+its head** (e07, e13) — which is exactly why the agent runs code instead of trusting the model.
+Details: [docs/RESULTS.md](docs/RESULTS.md).
 
 ### 3. Look inside the network — with charts
 
@@ -237,8 +243,9 @@ Ollama and llama.cpp backends. 98 tests.
 |---|---|---|
 | `v0.1` | verified dataset pipeline, held-out eval, model v1 | ✅ done |
 | `v0.2` | model v2, auto-scoring, agent fixes measured on 7B, wtools | ✅ done |
-| `v0.3` | dataset ≈ 2,000+ (Java, SQL analytics, PyTorch), *trace-then-verdict* answers, model v3 | 🚧 in progress |
-| `v0.3` | agent plan reliability (#2) measured end-to-end on 7B | 🚧 in progress |
+| `v0.3` | model v3 (954 verified examples): 13/18 key facts, SQLite & PyTorch questions fixed | ✅ done |
+| `v0.4` | dataset ≈ 2,000+ (Java practice tasks, SQL analytics, PyTorch bugs), *trace-then-verdict*, persona mode | 🚧 in progress |
+| `v0.3` | agent plan reliability (#2): root cause found on 7B and fixed | ✅ done · end-to-end GPU run 🚧 |
 | `v0.4` | wtools: activations & attention via hooks, GGUF reader | 📋 planned |
 | `v0.4` | one-command local setup for Apple Silicon | 📋 planned |
 

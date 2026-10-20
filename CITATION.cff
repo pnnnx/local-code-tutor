@@ -4,7 +4,7 @@ title: "Local Code Tutor: execution-verified fine-tuning of Qwen2.5-Coder-7B and
 authors:
   - family-names: Kononenko
     given-names: Leonid
-version: 0.2.0
+version: 0.3.0
 date-released: 2026-10-20
 license: MIT
 repository-code: "https://github.com/pnnnx/local-code-tutor"

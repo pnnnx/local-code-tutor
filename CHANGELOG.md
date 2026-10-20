@@ -10,6 +10,17 @@ versioning: [SemVer](https://semver.org/). A detailed day-by-day log is in [docs
 ### Changed
 - Prompts ask for *trace-then-verdict* answers on "what will this print?" questions (v2 invented outputs).
 
+## [0.3.0] — 2026-10-20
+### Added
+- **Model v3**: 954 verified examples (+pandas, SQLite analytics, PyTorch, weight analysis, first Java,
+  persona mode) — **13/18** held-out key facts vs 8/18 for the base model and 9/15 for v2.
+- Held-out set extended to 18 questions (PyTorch training bug, `eval()` vs `no_grad()`, `state_dict` diff).
+- Persona mode switched on by a system-prompt line; no profanity leaks into normal answers.
+### Fixed
+- Agent plans stalled on the first subtask: a test *file name* in the acceptance check went to
+  `unittest -k` (a test-*name* filter) → "Ran 0 tests" → rollback. Found on Qwen2.5-Coder-7B; file
+  targets are now resolved on disk and run as files.
+
 ## [0.2.0] — 2026-10-20
 ### Added
 - **Model v2**: QLoRA on Qwen2.5-Coder-7B-Instruct, 762 verified + 300 general examples, GGUF `Q4_K_M`.
