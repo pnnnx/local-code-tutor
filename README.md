@@ -51,6 +51,10 @@ can be that tutor — if the system around it is built so the model doesn't have
 - **Reproducible for $0** — a recipe anyone can repeat: free GPU for training, local inference, every
   decision and measurement documented.
 
+<img src="assets/brand/cards/goal.png" alt="Definition of done for v1.0: key facts on held-out questions 13/18 (target 15/18); asks instead of guessing 4/4; answers from a real run 2/2; multi-file tasks — measuring; 1,581 of 2,000 verified examples; fully offline on an 8 GB MacBook Air" width="100%">
+
+<details><summary>Text version</summary>
+
 **Definition of done for `v1.0`** — each item is measurable with the tools in this repo:
 
 | Goal | Target | Now |
@@ -62,10 +66,18 @@ can be that tutor — if the system around it is built so the model doesn't have
 | Verified examples, incl. Java, SQL analytics, PyTorch | ≥ 2,000 | 1,581 |
 | Runs fully offline on a MacBook Air M2 8 GB | yes | yes |
 
+</details>
+
 **Non-goals:** competing with frontier cloud models on large refactors or deep reasoning; being a
 general-purpose chatbot. The target is narrow on purpose — *understanding code you're learning from*.
 
 ## At a glance
+
+<img src="assets/brand/cards/glance.png" alt="Release v0.3.0: local-code-tutor 0.3.0, loca 0.1.0 with 106 tests, wtools 0.1.0, model my-coder v3 (v4 training), dataset format v1, held-out eval v1. Tested with Qwen2.5-Coder-7B, QLoRA on a T4, llama.cpp and Ollama, GGUF Q4_K_M, Python 3.9–3.13, MacBook Air M2 8 GB" width="100%">
+
+<img src="assets/brand/cards/metrics.png" alt="1,581 verified examples; key facts 8 → 13 of 18; asks instead of guessing 1/4 → 4/4; answers from a real run 0/1 → 2/2; total cost $0" width="100%">
+
+<details><summary>Text version</summary>
 
 <table>
 <tr><td valign="top" width="52%">
@@ -75,7 +87,7 @@ general-purpose chatbot. The target is narrow on purpose — *understanding code
 | Component | Version | Status |
 |---|---|---|
 | **local-code-tutor** (this repo) | `0.3.0` | ![beta](https://img.shields.io/badge/-beta-2a78d6) |
-| **[loca](https://github.com/pnnnx/loca)** agent | `0.1.0` · 98 tests | ![beta](https://img.shields.io/badge/-beta-2a78d6) |
+| **[loca](https://github.com/pnnnx/loca)** agent | `0.1.0` · 106 tests | ![beta](https://img.shields.io/badge/-beta-2a78d6) |
 | **wtools** weight analysis | `0.1.0` · 5 commands · MCP | ![beta](https://img.shields.io/badge/-beta-2a78d6) |
 | Fine-tuned model **my-coder** | `v3` · LoRA r=32 · 954 + 300 examples | ![experimental](https://img.shields.io/badge/-experimental-eb6834) |
 | Dataset format | `v1` · 7 kinds · 6 languages | ![stable](https://img.shields.io/badge/-stable-1baf7a) |
@@ -100,16 +112,22 @@ general-purpose chatbot. The target is narrow on purpose — *understanding code
 
 | Metric | Value |
 |---|---|
-| Verified training examples | **900+** and growing (target ≈ 2,600) across 20+ categories |
+| Verified training examples | **1,581** and growing (target ≈ 2,600) across 20+ categories |
 | Held-out key facts, base → v2 → v3 | **8 / 18 → 9 / 15 → 13 / 18** ([details](docs/RESULTS.md)) |
 | Agent failure mode #8 "guesses instead of asking" | **1 / 4 → 4 / 4** on real Qwen2.5-Coder-7B |
 | Agent failure mode #4 "can't run code in its head" | **0 / 1 → 2 / 2** on real Qwen2.5-Coder-7B |
 | Cost | **$0** — free Kaggle GPU, local inference |
 
+</details>
+
 ---
 
 Small local models are great at *sounding* right. Ask a 7B model "what does this print?" and it will
 confidently invent the output. This project is built around one rule:
+
+<img src="assets/brand/cards/rule.png" alt="The model never guesses what code does — something always runs it: in the training data, in the agent and in the evaluation" width="100%">
+
+<details><summary>Text version</summary>
 
 > **The model never guesses what code does. Something always runs it.**
 
@@ -119,7 +137,13 @@ confidently invent the output. This project is built around one rule:
 | **Agent** | When you ask "what will this print / why does it crash", the [loca](https://github.com/pnnnx/loca) agent shows the model the source **and runs it before the model answers**. Unsafe code (deletes files, network, `input()`) is never auto-run. |
 | **Evaluation** | 18 held-out questions that never appear in training, scored automatically on key facts. |
 
+</details>
+
 Everything below runs on a **MacBook Air M2 with 8 GB RAM**; training uses the **free Kaggle T4**.
+
+<img src="assets/brand/cards/pipeline.png" alt="Pipeline: an LLM writes candidate examples → every snippet is run → skeleton dedup → QLoRA on a free Kaggle T4 → GGUF Q4_K_M → loca agent on an 8 GB Mac; wtools connect to the agent over MCP" width="100%">
+
+<details><summary>Diagram source (Mermaid)</summary>
 
 ```mermaid
 flowchart LR
@@ -131,6 +155,8 @@ flowchart LR
   F --> G[loca agent]
   H[weights tools<br/>stats · diff · LoRA · quant] -- MCP --> G
 ```
+
+</details>
 
 ## Results
 
@@ -156,10 +182,6 @@ harness that runs the same requests before and after each fix (`bench/probe.py` 
 
 ![held-out eval](assets/eval_v3_en.png)
 
-| | base + prompt | v2 (762 examples) | v3 (954 examples) |
-|---|:-:|:-:|:-:|
-| Key facts, 18 held-out questions | 8 / 18 | 9 / 15* | **13 / 18** |
-
 <sub>* v2 was evaluated before PyTorch questions e16–e18 were added.</sub>
 
 **v2** answered exactly in the target style (verdict first, precise mechanism, fixed code) — **but
@@ -171,9 +193,11 @@ Details: [docs/RESULTS.md](docs/RESULTS.md).
 
 ### 3. Look inside the network — with charts
 
-<img src="assets/brand/lo_weights.png" align="right" width="110" alt="">
-
 `wtools/weights.py` (CLI + MCP server, so the agent can call it):
+
+<img src="assets/brand/cards/wtools.png" alt="wtools commands: inspect, stats, diff, lora, quant" width="100%">
+
+<details><summary>Text version</summary>
 
 | Command | What you learn |
 |---|---|
@@ -182,6 +206,8 @@ Details: [docs/RESULTS.md](docs/RESULTS.md).
 | `diff` | what fine-tuning changed: ‖ΔW‖/‖W‖ and cosine per layer and per module type |
 | `lora` | ΔW = B·A·α/r per module, effective rank, energy in the top direction, spectrum — via QR on r×r, fast even for 7B |
 | `quant` | int8/int4 error per layer: per-tensor vs per-row vs 32-block scales (the GGUF idea) |
+
+</details>
 
 <p align="center">
   <img src="assets/wtools_diff_en.png" width="49%">
@@ -224,9 +250,9 @@ python3 wtools/install_loca.py              # give the agent the weight-analysis
 
 ## How it works
 
-<img src="assets/brand/lo_think.png" align="right" width="110" alt="">
+<img src="assets/brand/cards/steps.png" alt="The dataset pipeline: prompt → execute every snippet → reject bad examples → commit accepted ones with reasons" width="100%">
 
-**The dataset pipeline (`ds/`)**
+<details><summary>Text version</summary>
 
 1. A prompt with the category, topics, *what is already covered* and strict format rules goes to an
    LLM (ChatGPT or Claude) via the clipboard.
@@ -237,6 +263,8 @@ python3 wtools/install_loca.py              # give the agent the weight-analysis
 4. Rejections are turned into a "fix these" message for the same chat; accepted examples are committed
    to git automatically with the rejection reasons in the commit message.
 
+</details>
+
 **Training (`kaggle_qwen_coder_finetune_v2.ipynb`)** — Unsloth QLoRA on `Qwen2.5-Coder-7B-Instruct`,
 fp16 on T4, `adamw_8bit`, loss on responses only, half of the examples with a system prompt so the model
 behaves the same with and without it; then automatic held-out eval and GGUF export.
@@ -244,9 +272,13 @@ behaves the same with and without it; then automatic held-out eval and GGUF expo
 **The agent ([loca](https://github.com/pnnnx/loca))** — a stdlib-only terminal coding agent
 for small local models: repo map with signatures and tests per file, read-by-symbol, fuzzy edits, a
 plan graph with executable acceptance checks and rollbacks, sub-agents, undo snapshots, hooks, MCP,
-Ollama and llama.cpp backends. 98 tests.
+Ollama and llama.cpp backends. 106 tests.
 
 ## Lessons learned
+
+<img src="assets/brand/cards/lessons.png" alt="Lessons: 7B ignores polite reminders; style comes before facts; verify with execution; measure on the real model" width="100%">
+
+<details><summary>Text version</summary>
 
 - **A 7B model ignores polite reminders.** "Run the code first" in the prompt changed nothing; doing it
   deterministically in the harness fixed it. Prefer code paths over prompt paths for anything critical.
@@ -257,19 +289,11 @@ Ollama and llama.cpp backends. 98 tests.
 - **Measure on the real model.** Every fix that "obviously worked" in unit tests failed at least once on
   the actual 7B before it was adjusted.
 
+</details>
+
 ## Roadmap
 
-<img src="assets/brand/lo_olymp.png" align="right" width="110" alt="">
-
-| Milestone | What | Status |
-|---|---|---|
-| `v0.1` | verified dataset pipeline, held-out eval, model v1 | ✅ done |
-| `v0.2` | model v2, auto-scoring, agent fixes measured on 7B, wtools | ✅ done |
-| `v0.3` | model v3 (954 verified examples): 13/18 key facts, SQLite & PyTorch questions fixed | ✅ done |
-| `v0.4` | dataset ≈ 2,000+ (Java practice tasks, SQL analytics, PyTorch bugs), *trace-then-verdict*, persona mode | 🚧 in progress |
-| `v0.3` | agent plan reliability (#2): root cause found on 7B and fixed | ✅ done · end-to-end GPU run 🚧 |
-| `v0.4` | wtools: activations & attention via hooks, GGUF reader | 📋 planned |
-| `v0.4` | one-command local setup for Apple Silicon | 📋 planned |
+<img src="assets/brand/cards/roadmap.png" alt="Roadmap: v0.1–v0.3 done; v0.4 in progress (1,581 examples, model v4, grumpy mode, write_tests, mascot Lo); v0.5 next (/olymp with algorithm templates); v0.6 planned" width="100%">
 
 See [docs/PLAN.md](docs/PLAN.md) for the full plan and [CHANGELOG.md](CHANGELOG.md) for what changed.
 
