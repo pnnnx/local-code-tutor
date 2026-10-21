@@ -1,0 +1,50 @@
+{
+ "model": {
+  "file": "my-coder-v4-Q4_K_M.gguf",
+  "sha256": "a5ab2658375bdf4aed925052c87f1241c03554feae2893baf77a13cf7af5d832",
+  "bytes": 4683073856,
+  "params": 7615616512,
+  "quant": "Q4_K_M",
+  "params_by_type": {
+   "Q6_K": 1521221632,
+   "F32": 333312,
+   "Q4_K": 6094061568
+  },
+  "chat_template_sha256": "93ece0037c37d080",
+  "chat_template_has_tools": true,
+  "location": "~/models (не в git)"
+ },
+ "dataset": {
+  "file": "ds/explain_ru_train.jsonl",
+  "sha256": "0e0e96d41cc0b8e623db716299feb488148aca9c060acb4dca5a6912ed97a89e",
+  "rows": 1581,
+  "persona_rows": 39
+ },
+ "training": {
+  "notebook": "kaggle_qwen_coder_finetune_v4.ipynb",
+  "notebook_sha256": "e901c9a6d54a51f76fc7c043de4684b5c04391d328deb3791f534a3517244206",
+  "MODEL_NAME": "\"unsloth/Qwen2.5-Coder-7B-Instruct-bnb-4bit\"",
+  "N_GLAIVE": "300",
+  "EPOCHS": "2",
+  "LR": "1e-4",
+  "LORA_R": "32",
+  "MAX_SEQ_LEN": "3072",
+  "SYSTEM_SHARE": "0.5",
+  "PERSONA_REPEAT": "2",
+  "SEED": "42",
+  "rows_total": 1920,
+  "minutes": 190,
+  "steps": 480,
+  "loss_first": 1.466,
+  "loss_last": 0.943,
+  "loss_mean": 1.028,
+  "hardware": "Kaggle T4 16 GB"
+ },
+ "eval": {
+  "set": "ds/eval_set.py (18 вопросов)",
+  "base+prompt": "8/18",
+  "tuned": "13/18",
+  "tuned+prompt": "11/18"
+ },
+ "code_commit": "341704b"
+}

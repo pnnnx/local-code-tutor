@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-PATH = {"type": "string", "description": "файл весов (.safetensors/.pt/.bin) или папка адаптера"}
+PATH = {"type": "string", "description": "файл весов (.safetensors/.pt/.bin, для snapshot и .gguf) или папка адаптера"}
 OUT = {"type": "string", "description": "куда сохранить PNG (по умолчанию ./weights_report)"}
 TOOLS = [
     {"name": "weights_inspect",
@@ -41,6 +41,11 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"path": PATH, "out": OUT,
                                                       "bits": {"type": "integer", "enum": [8, 4]}},
                      "required": ["path"]}},
+    {"name": "weights_snapshot",
+     "description": "Снимок модели (в т.ч. GGUF): sha256, метаданные, есть ли tools в шаблоне чата, типы квантования, "
+                    "статистика каждого тензора по выборке строк. + PNG и snapshot.json.",
+     "inputSchema": {"type": "object", "properties": {"path": PATH, "out": OUT,
+                                                      "rows": {"type": "integer"}}, "required": ["path"]}},
 ]
 
 
@@ -55,6 +60,8 @@ def call(name: str, args: dict) -> str:
         text, pngs = w.diff(args["before"], args["after"], out=out)
     elif name == "weights_lora":
         text, pngs = w.lora(args["path"], out=out)
+    elif name == "weights_snapshot":
+        text, pngs = w.snapshot(args["path"], out=out, rows=int(args.get("rows") or 256))
     elif name == "weights_quant":
         text, pngs = w.quant(args["path"], out=out, bits=int(args.get("bits") or 4))
     else:

@@ -118,3 +118,27 @@ def test_mcp_server_roundtrip(files):
     text = replies[3]["result"]["content"][0]["text"]
     assert "model.layers.2.mlp.up_proj.weight" in text and "diff_top.png" in text
     assert replies[4]["result"]["isError"] is True
+
+
+def test_snapshot_gguf_and_safetensors(files, tmp_path):
+    gguf = pytest.importorskip("gguf")
+    import numpy as np
+    from gguf import GGMLQuantizationType as Q
+    w8 = gguf.GGUFWriter(str(tmp_path / "m.gguf"), "qwen2")
+    w8.add_block_count(2)
+    w8.add_string("tokenizer.chat_template", "{%- if tools %}tools{% endif %}")
+    g = np.random.default_rng(0)
+    for i in range(2):
+        w8.add_tensor(f"blk.{i}.attn_q.weight", g.standard_normal((64, 32)).astype(np.float32))
+        w8.add_tensor(f"blk.{i}.ffn_up.weight", gguf.quants.quantize(g.standard_normal((48, 64)).astype(np.float32), Q.Q8_0),
+                      raw_dtype=Q.Q8_0)
+    w8.write_header_to_file(); w8.write_kv_data_to_file(); w8.write_tensors_to_file(); w8.close()
+    text, pngs = w.snapshot(tmp_path / "m.gguf", out=tmp_path / "s", rows=16)
+    info = json.loads((tmp_path / "s" / "snapshot.json").read_text())
+    assert info["tensors"] == 4 and info["params"] == 2 * (64 * 32 + 48 * 64)
+    assert set(info["params_by_type"]) == {"F32", "Q8_0"} and info["meta"]["chat_template_has_tools"] is True
+    q = [t for t in info["stats"] if t["type"] == "Q8_0"][0]
+    assert q["shape"] == [48, 64] and q["rows_sampled"] == "16/48" and 0.8 < q["std"] < 1.2   # деквантовано верно
+    assert len(info["sha256"]) == 64 and "Q8_0" in text and len(pngs) == 4
+    text, _ = w.snapshot(files / "before.safetensors", out=tmp_path / "s2")
+    assert "model.layers.0.self_attn.q_proj.weight" in json.dumps(json.loads((tmp_path / "s2" / "snapshot.json").read_text()))
