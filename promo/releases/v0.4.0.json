@@ -1,0 +1,8 @@
+{
+ "_comment": "Черновик к следующему релизу: поменяй карточки под то, что реально вошло. Иконки: mac gpu check chart star tools play data test mascot; цвета: blue gold green violet red.",
+ "tunnel": {"h1": "что нового", "h2": "в v0.4",
+            "cards": [{"icon": "data", "big": "1 581", "small": "проверенный пример в датасете", "color": "blue"},
+                      {"icon": "test", "big": "write_tests", "small": "агент сам пишет и проверяет тесты", "color": "green"},
+                      {"icon": "chart", "big": "снимок весов", "small": "статистика GGUF за 38 секунд", "color": "violet"}]},
+ "cta": {"version": "v0.4.0"}
+}

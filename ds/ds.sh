@@ -16,7 +16,10 @@ case "$cmd" in
              build) python3 ../traces/build_tasks.py "$@" ;;
              kit)   python3 ../traces/kit.py ;;
              add|status) python3 ../traces/review.py "$sub" "$@" ;;
-             *) echo "./ds.sh traces build | kit | add results.zip [--yes] | status" ;;
+             prompt) python3 ../traces/prompt.py "$@" ;;
+             paste)  python3 ../traces/replay.py "$@" ;;
+             local)  sh ../traces/local.sh "$@" ;;
+             *) echo "./ds.sh traces prompt [N] | paste [файл] | local [N] | build | kit | add results.zip | status" ;;
            esac ;;
   *) cat <<'HELP'
 ./ds.sh                     ПРОЩЕ ВСЕГО: выбрать тему и идти по шагам
@@ -33,6 +36,9 @@ case "$cmd" in
 ./ds.sh traces build        задачи для трасс с инструментами (algo-cli, мутации, «что выведет»)
 ./ds.sh traces kit          traces_kit.zip для Kaggle (loca + скрипты + задачи)
 ./ds.sh traces add <zip>    результаты Kaggle → просмотр спорных → ds/traces/traces.jsonl → коммит
+./ds.sh traces prompt [N]   промпт «реши N задач вызовами инструментов» для другого чата Claude → в буфер
+./ds.sh traces paste        ответ того чата → проигрыш по-настоящему → годные в датасет, «исправь» → в буфер
+./ds.sh traces local [N]    прогнать свою my-coder на N задачах на Mac — где ломается (отчёт + папки)
 ./ds.sh traces status       сколько трасс собрано
 HELP
   ;;

@@ -1,0 +1,477 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>html,body{margin:0;background:#000}canvas{display:block}
+@font-face{font-family:"Inter Display";font-weight:500;src:url(fonts/InterDisplay-Medium.otf)}
+@font-face{font-family:"Inter Display";font-weight:600;src:url(fonts/InterDisplay-SemiBold.otf)}
+@font-face{font-family:"Inter Display";font-weight:700;src:url(fonts/InterDisplay-Bold.otf)}
+@font-face{font-family:"Inter Display";font-weight:800;src:url(fonts/InterDisplay-ExtraBold.otf)}
+@font-face{font-family:"Inter Display";font-weight:900;src:url(fonts/InterDisplay-Black.otf)}
+@font-face{font-family:"Promo Mono";font-weight:400 600;src:url(fonts/DejaVuSansMono.ttf)}
+@font-face{font-family:"Promo Mono";font-weight:700 900;src:url(fonts/DejaVuSansMono-Bold.ttf)}
+</style>
+<script src="lo_assets.js"></script>
+<script src="data.js"></script>
+</head><body>
+<canvas id="c" width="1080" height="1920"></canvas>
+<script>
+// ---------------------------------------------------------------- база
+const W = 1080, H = 1920, DUR = 10;
+const out = document.getElementById('c'), octx = out.getContext('2d');
+const buf = document.createElement('canvas'); buf.width = W; buf.height = H;
+let ctx = buf.getContext('2d');
+const C = {bg0:'#0b1020', bg1:'#18204a', ink:'#f4f6fb', mute:'#9aa3b8', blue:'#4c8dff', red:'#ff5a6e',
+           green:'#5be49b', gold:'#ffc94d', violet:'#a98bff', panel:'#121a33', panel2:'#1a2446', cream:'#fff6e9'};
+const FONT = '"Inter Display", Inter, sans-serif', MONO = '"Promo Mono", "DejaVu Sans Mono", monospace';
+const D = window.DATA;
+// уменьшить кегль, пока строка не влезет в ширину (длинные фразы будущих релизов)
+function fit(s, size, maxW, weight=800, font=FONT){ ctx.font = `${weight} ${size}px ${font}`; ctx.letterSpacing = '0px';
+  const w = ctx.measureText(s).width; return w > maxW ? Math.floor(size * maxW / w) : size; }
+const LO = {}; for (const k in window.LO) { const im = new Image(); im.src = window.LO[k]; LO[k] = im; }
+
+const clamp = (x, a=0, b=1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const eo3 = x => 1 - Math.pow(1 - x, 3);
+const eio3 = x => x < .5 ? 4*x*x*x : 1 - Math.pow(-2*x + 2, 3) / 2;
+const eo5 = x => 1 - Math.pow(1 - x, 5);
+const back = (x, s=1.7) => 1 + (s+1)*Math.pow(x-1,3) + s*Math.pow(x-1,2);
+const spring = (x, f=7, d=6) => x <= 0 ? 0 : 1 - Math.exp(-d*x) * Math.cos(f*x*Math.PI);
+function rng(seed){ let s = seed >>> 0; return () => ((s = (s*1664525 + 1013904223) >>> 0) / 4294967296); }
+
+// ---------------------------------------------------------------- камера (одна непрерывная траектория)
+// ключи: время, x, y, zoom, rot(рад). Между ключами — кубическая Эрмитова интерполяция (без нулевой скорости на ключах)
+const CAM = [
+  [0.00,   0,   40, 0.92, -0.035],
+  [1.20,  20,  -10, 1.04,  0.010],
+  [1.90,  60,  -20, 1.10,  0.030],
+  [2.15, -40,    0, 1.00, -0.030],   // whip-переход
+  [3.30,   0,   20, 1.04,  0.000],
+  [4.40,  10,   60, 1.18,  0.015],
+  [4.70,   0,    0, 1.00,  0.000],   // нырок в туннель
+  [7.40,   0,    0, 1.00,  0.000],
+  [8.10,   0,  -10, 1.00, -0.012],
+  [10.0,   0,    0, 1.03,  0.000],
+];
+function camAt(t){
+  let i = 0; while (i < CAM.length - 2 && t > CAM[i+1][0]) i++;
+  const a = CAM[Math.max(0,i-1)], p0 = CAM[i], p1 = CAM[i+1], b = CAM[Math.min(CAM.length-1, i+2)];
+  const u = clamp((t - p0[0]) / (p1[0] - p0[0])), u2 = u*u, u3 = u2*u;
+  const h00 = 2*u3 - 3*u2 + 1, h10 = u3 - 2*u2 + u, h01 = -2*u3 + 3*u2, h11 = u3 - u2;
+  const res = [];
+  for (let k = 1; k < 5; k++) {
+    const m0 = (p1[k] - a[k]) * 0.5 * (p1[0]-p0[0]) / Math.max(1e-3, p1[0]-a[0]) * 2;
+    const m1 = (b[k] - p0[k]) * 0.5 * (p1[0]-p0[0]) / Math.max(1e-3, b[0]-p0[0]) * 2;
+    res.push(h00*p0[k] + h10*m0 + h01*p1[k] + h11*m1);
+  }
+  // shake на ударах
+  const sh = shake(t);
+  return {x: res[0] + sh[0], y: res[1] + sh[1], z: res[2], r: res[3]};
+}
+function shake(t){
+  let x = 0, y = 0;
+  for (const [t0, a] of [[1.25, 22], [3.25, 16], [8.5, 8]]) {
+    const d = t - t0; if (d < 0 || d > .35) continue;
+    const e = Math.exp(-d * 14) * a;
+    x += Math.sin(d * 90) * e; y += Math.cos(d * 70) * e * .6;
+  }
+  return [x, y];
+}
+// слой с параллаксом: depth 0 — у камеры (сильнее), 1 — экран, >1 — дальше
+function withCam(t, depth, fn){
+  const c = camAt(t), k = 1 / depth;
+  ctx.save();
+  ctx.translate(W/2, H/2);
+  ctx.rotate(c.r * k);
+  ctx.scale(1 + (c.z - 1) * k, 1 + (c.z - 1) * k);
+  ctx.translate(-W/2 - c.x * k, -H/2 - c.y * k);
+  fn(); ctx.restore();
+}
+
+// ---------------------------------------------------------------- фон: сетка-пол, частицы-глифы в 3 слоях
+const GLYPHS = ['{ }', '()', '=>', 'def', '[]', '#', '14', 'for', 'λ', '0', 'run', '✓', '>_'];
+const PARTS = (() => { const r = rng(7), a = [];
+  for (let i = 0; i < 70; i++) a.push({x: r()*W*1.4 - W*.2, y: r()*H*1.3 - H*.15, d: [0.55, 1.6, 3.2][i % 3],
+                                       g: GLYPHS[Math.floor(r()*GLYPHS.length)], s: r(), ph: r()*6.28});
+  return a; })();
+
+function background(t){
+  const g = ctx.createRadialGradient(W*.5, H*.32, 80, W*.5, H*.45, H*.9);
+  const warm = clamp(seg(t, 7.3, 8.2));       // на финале фон теплеет
+  g.addColorStop(0, warm ? mix('#1d2a5e', '#2b2150', warm) : '#1d2a5e');
+  g.addColorStop(1, C.bg0);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  // перспективная сетка-пол (движется вперёд — ощущение полёта)
+  const speed = t < 4.5 ? 0.25 : t < 7.5 ? 1.6 : 0.35;
+  const off = (t * speed * 0.9 + (t > 4.5 ? (t-4.5)*0.6 : 0)) % 1;
+  ctx.save(); ctx.strokeStyle = 'rgba(120,150,255,0.10)'; ctx.lineWidth = 2;
+  const hy = H * .58;
+  for (let i = 0; i < 18; i++) {
+    const z = (i + 1 - off), y = hy + 2600 / (z + .6) - 120;
+    if (y > H || y < hy) continue;
+    ctx.globalAlpha = clamp((y - hy) / 600);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  for (let i = -10; i <= 10; i++) {
+    ctx.beginPath(); ctx.moveTo(W/2 + i*40, hy); ctx.lineTo(W/2 + i*420, H + 200); ctx.stroke();
+  }
+  ctx.restore();
+}
+function mix(a, b, t){
+  const p = s => [1,3,5].map(i => parseInt(s.substr(i,2),16)), A = p(a), B = p(b);
+  return '#' + A.map((v, i) => Math.round(lerp(v, B[i], t)).toString(16).padStart(2,'0')).join('');
+}
+const SPR = new Map();
+function sprite(g, size, blur, color){
+  size = Math.max(8, Math.round(size / 6) * 6); blur = Math.round(blur);
+  const key = g + '|' + size + '|' + blur + '|' + color;
+  let c = SPR.get(key);
+  if (!c) {
+    c = document.createElement('canvas'); const pad = blur * 3 + 8;
+    const x = c.getContext('2d'); x.font = `700 ${size}px ${MONO}`;
+    const w = Math.ceil(x.measureText(g).width) + pad * 2, h = Math.ceil(size * 1.4) + pad * 2;
+    c.width = w; c.height = h;
+    const y = c.getContext('2d'); y.font = `700 ${size}px ${MONO}`; y.fillStyle = color; y.textAlign = 'center'; y.textBaseline = 'middle';
+    if (blur) y.filter = `blur(${blur}px)`;
+    y.fillText(g, w / 2, h / 2);
+    SPR.set(key, c);
+  }
+  return c;
+}
+function particles(t, layer){
+  const tunnel = seg(t, 4.5, 7.6), boost = t > 4.5 && t < 7.6 ? 1 : 0;
+  for (const p of PARTS) {
+    if ((layer === 'far' && p.d < 3) || (layer === 'mid' && p.d !== 1.6) || (layer === 'near' && p.d > .6)) continue;
+    withCam(t, p.d, () => {
+      let x = p.x + Math.sin(t*.7 + p.ph) * 30, y = p.y - t * 40 / p.d;
+      let sc = 1;
+      if (boost) {               // в туннеле глифы летят на камеру от центра
+        const k = ((t - 4.5) * (1.2 / p.d) + p.s) % 1, r = Math.pow(k, 2.2);
+        x = W/2 + (p.x - W/2) * (0.2 + r * 2.4); y = H*.42 + (p.y - H*.42) * (0.2 + r * 2.4); sc = .4 + r * 2.2;
+      }
+      y = ((y % (H*1.3)) + H*1.3) % (H*1.3) - H*.15;
+      ctx.save();
+      ctx.globalAlpha = (p.d > 3 ? .16 : p.d > 1 ? .26 : .22) * (t > 9.6 ? 1 - seg(t, 9.6, 10) * .5 : 1);
+      const blur = p.d > 3 ? 3 : p.d < 1 ? 6 + sc * 3 : 0;
+      const sp = sprite(p.g, (p.d < 1 ? 110 : p.d > 3 ? 34 : 54) * sc, blur, p.d < 1 ? C.violet : '#8fb0ff');
+      ctx.drawImage(sp, x - sp.width / 2, y - sp.height / 2);
+      ctx.restore();
+    });
+  }
+}
+
+// ---------------------------------------------------------------- примитивы
+function rrect(x, y, w, h, r){ ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+function panel(x, y, w, h, r=36, fill=C.panel, glow=null){
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 34; ctx.shadowOffsetY = 22;
+  rrect(x, y, w, h, r); ctx.fillStyle = fill; ctx.fill();
+  ctx.restore();
+  ctx.save(); rrect(x, y, w, h, r); ctx.strokeStyle = glow || 'rgba(140,170,255,.22)'; ctx.lineWidth = 3; ctx.stroke(); ctx.restore();
+}
+function text(s, x, y, size, color, weight=800, align='left', font=FONT, spacing=0){
+  ctx.font = `${weight} ${size}px ${font}`; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'alphabetic';
+  if (spacing) ctx.letterSpacing = spacing + 'px'; else ctx.letterSpacing = '0px';
+  ctx.fillText(s, x, y);
+}
+// слово по буквам: каждая буква со своей задержкой и пружиной
+function kinetic(s, x, y, size, color, t0, t, opts={}){
+  const {weight=900, stagger=.035, rise=60, rot=.25, align='center', scaleFrom=.4} = opts;
+  ctx.font = `${weight} ${size}px ${FONT}`; ctx.letterSpacing = '0px';
+  const widths = [...s].map(ch => ctx.measureText(ch).width), total = widths.reduce((a,b) => a+b, 0);
+  let cx = align === 'center' ? x - total/2 : x;
+  const base = ctx.globalAlpha;
+  [...s].forEach((ch, i) => {
+    const u = clamp((t - t0 - i*stagger) / .45);
+    if (u <= 0) { cx += widths[i]; return; }
+    const sp = spring(u, 1.2, 5.5);
+    ctx.save();
+    ctx.translate(cx + widths[i]/2, y);
+    ctx.rotate((1 - sp) * rot * (i % 2 ? 1 : -1));
+    const sc = lerp(scaleFrom, 1, sp);
+    ctx.scale(sc, sc);
+    ctx.globalAlpha = base * clamp(u * 3);
+    ctx.fillStyle = color; ctx.textAlign = 'center';
+    ctx.fillText(ch, 0, (1 - sp) * rise);
+    ctx.restore();
+    cx += widths[i];
+  });
+}
+function lo(mood, x, y, size, t, opts={}){
+  const im = LO[mood]; if (!im || !im.complete) return;
+  const {bob=1, squash=0, rot=0} = opts;
+  ctx.save();
+  ctx.translate(x, y + Math.sin(t * 6) * 8 * bob);
+  ctx.rotate(rot);
+  ctx.scale(1 + squash, 1 - squash);
+  ctx.drawImage(im, -size/2, -size/2, size, size);
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------- сцена 1: ИИ уверенно гадает (0–2.0)
+const CODE = D.hook.code;
+function codePanel(t, x, y, a=1){
+  ctx.save(); ctx.globalAlpha = a;
+  panel(x, y, 900, 330, 34);
+  for (const [i, c] of ['#ff5f57', '#febc2e', '#28c840'].entries()) { ctx.beginPath(); ctx.arc(x + 46 + i*34, y + 44, 10, 0, 7); ctx.fillStyle = c; ctx.fill(); }
+  text(D.hook.file, x + 900 - 40, y + 54, 28, C.mute, 600, 'right', MONO);
+  CODE.forEach((l, i) => {
+    const u = seg(t, -.3 + i*.1, 0 + i*.1);
+    ctx.save(); ctx.globalAlpha *= eo3(u); ctx.translate((1 - eo3(u)) * -40, 0);
+    // простая подсветка
+    const parts = l.match(/(print|for|in|range|sum)|(\d+)|([^\w]+|\w+)/g);
+    let cx = x + 46; ctx.font = `600 38px ${MONO}`; ctx.textAlign = 'left'; ctx.letterSpacing = '0px';
+    for (const p of parts) {
+      ctx.fillStyle = /^(print|for|in|range|sum)$/.test(p) ? C.violet : /^\d+$/.test(p) ? C.gold : '#dfe6ff';
+      ctx.fillText(p, cx, y + 140 + i*70); cx += ctx.measureText(p).width;
+    }
+    ctx.restore();
+  });
+  ctx.restore();
+}
+function scene1(t){
+  if (t > 2.3) return;
+  const out = seg(t, 1.95, 2.25);
+  withCam(t, 1, () => {
+    ctx.save(); ctx.globalAlpha = 1 - out;
+    // заголовок-крючок
+    kinetic(D.hook.l1, W/2, 420, fit(D.hook.l1, 104, 940), C.ink, -.6, t, {weight: 800, stagger: .025});
+    // «ГАДАЕТ» — толще, наклон, дрожит
+    ctx.save(); ctx.translate(W/2, 560); ctx.rotate(-.05 + Math.sin(t*22) * .006 * seg(t, .9, 1.2));
+    kinetic(D.hook.l2, 0, 0, fit(D.hook.l2, 170, 940, 900), C.red, .28, t, {weight: 900, stagger: .04, rise: 120, rot: .5});
+    ctx.restore();
+    codePanel(t, 90, 700);
+    // пузырь ответа ИИ
+    const b = seg(t, .55, .9), bs = back(eo3(b), 2.2);
+    if (b > 0) {
+      ctx.save(); ctx.translate(560, 1180); ctx.scale(bs, bs); ctx.globalAlpha *= clamp(b * 3);
+      panel(-330, -110, 660, 210, 50, '#2a3358', 'rgba(255,255,255,.15)');
+      ctx.beginPath(); ctx.moveTo(-230, 96); ctx.lineTo(-180, 160); ctx.lineTo(-150, 96); ctx.fillStyle = '#2a3358'; ctx.fill();
+      text(D.hook.who, -280, -40, 32, C.mute, 600);
+      text(D.hook.bubble, -280, 52, fit(D.hook.bubble, 74, 560), C.ink, 800);
+      ctx.restore();
+    }
+    // красный штамп ✗ (удар 1.25)
+    const s = seg(t, 1.18, 1.32);
+    if (s > 0) {
+      const k = lerp(2.6, 1, eo5(s));
+      ctx.save(); ctx.translate(800, 1120); ctx.rotate(-.18); ctx.scale(k, k); ctx.globalAlpha *= clamp(s * 2);
+      ctx.strokeStyle = C.red; ctx.lineWidth = 26; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-70, -70); ctx.lineTo(70, 70); ctx.moveTo(70, -70); ctx.lineTo(-70, 70); ctx.stroke();
+      ctx.restore();
+      // ударная волна
+      const w = seg(t, 1.25, 1.65);
+      ctx.save(); ctx.globalAlpha *= (1 - w) * .6; ctx.strokeStyle = C.red; ctx.lineWidth = 8 * (1 - w);
+      ctx.beginPath(); ctx.arc(800, 1120, 40 + w * 260, 0, 7); ctx.stroke(); ctx.restore();
+    }
+    ctx.restore();
+  });
+}
+
+// ---------------------------------------------------------------- сцена 2: моя — запускает (2.0–4.6)
+const SHARDS = (() => { const r = rng(42), a = [];
+  for (let i = 0; i < 26; i++) a.push({x: -300 + r()*600, y: -90 + r()*180, vx: (r()-.5)*900, vy: -300 - r()*700, w: r()*8 - 4, s: 40 + r()*70});
+  return a; })();
+function scene2(t){
+  if (t < 1.95 || t > 4.75) return;
+  const inn = seg(t, 1.95, 2.3), out = seg(t, 4.28, 4.5);
+  withCam(t, 1, () => {
+    ctx.save(); ctx.globalAlpha = eo3(inn) * (1 - out);
+    // заголовок: «моя» + «ЗАПУСКАЕТ код» с маской-проигрывателем
+    kinetic(D.run.l1, W/2, 360, fit(D.run.l1, 88, 940), C.ink, 2.05, t, {weight: 800, stagger: .02});
+    const m = eo3(seg(t, 2.3, 2.85));
+    ctx.save();
+    ctx.beginPath(); ctx.rect(60, 380, 960 * m + 1, 200); ctx.clip();
+    text(D.run.l2, W/2, 515, fit(D.run.l2, 132, 940, 900), C.green, 900, 'center');
+    ctx.restore();
+    if (m > 0 && m < 1) {          // ▶ едет по фронту маски
+      const px = 60 + 960 * m;
+      ctx.save(); ctx.fillStyle = C.green; ctx.beginPath(); ctx.moveTo(px, 420); ctx.lineTo(px + 70, 465); ctx.lineTo(px, 510); ctx.fill(); ctx.restore();
+    }
+    kinetic(D.run.l3, W/2, 640, fit(D.run.l3, 88, 940), C.ink, 2.75, t, {weight: 800});
+    // терминал
+    const tx = 90, ty = 760;
+    panel(tx, ty, 900, 520, 34, '#0d1326', 'rgba(91,228,155,.30)');
+    const cmd = D.run.cmd, n = Math.floor(clamp((t - 2.25) / .5) * cmd.length);
+    text(cmd.slice(0, n) + (t % .5 < .25 && n < cmd.length ? '▍' : ''), tx + 46, ty + 100, 42, '#c9d4ff', 600, 'left', MONO);
+    // вывод: 14 и 0 — крупно, с пружиной
+    const o1 = seg(t, 3.0, 3.35), o2 = seg(t, 3.12, 3.47);
+    if (o1 > 0) { ctx.save(); ctx.globalAlpha *= clamp(o1*3); ctx.translate(tx + 120, ty + 300); ctx.scale(spring(o1,1.4,5), spring(o1,1.4,5));
+      text(D.run.out[0], 0, 0, fit(D.run.out[0], 180, 330, 900, MONO), C.green, 900, 'left', MONO); ctx.restore(); }
+    if (o2 > 0) { ctx.save(); ctx.globalAlpha *= clamp(o2*3); ctx.translate(tx + 120, ty + 470); ctx.scale(spring(o2,1.4,5), spring(o2,1.4,5));
+      text(D.run.out[1] || '', 0, 0, fit(D.run.out[1] || ' ', 180, 330, 900, MONO), C.green, 900, 'left', MONO); ctx.restore(); }
+    // подпись-механизм
+    const ex = seg(t, 3.45, 3.8);
+    if (ex > 0) { ctx.save(); ctx.globalAlpha *= eo3(ex);
+      D.run.explain.forEach((l, i) => text(l, tx + 470, ty + 270 + i * 65, fit(l, 44, 400, 700), i === D.run.explain.length - 1 ? C.ink : C.mute, i === D.run.explain.length - 1 ? 800 : 700)); ctx.restore(); }
+    ctx.restore();
+  });
+  // осколки старого ответа «6 и 6» — разлетаются (удар 3.25)
+  const st = t - 3.25;
+  withCam(t, .9, () => {
+    if (t < 3.25) {             // пузырь ещё висит, уменьшенный, слева сверху
+      const a = eo3(seg(t, 2.0, 2.3));
+      ctx.save(); ctx.globalAlpha = .9 * (1 - out); ctx.translate(lerp(560, 330, a), lerp(1180, 1440, a)); ctx.scale(lerp(1, .62, a), lerp(1, .62, a));
+      panel(-330, -110, 660, 210, 50, '#2a3358'); text(D.hook.bubble, -280, 22, fit(D.hook.bubble, 74, 560), C.ink, 800);
+      ctx.strokeStyle = C.red; ctx.lineWidth = 16; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(150, -60); ctx.lineTo(260, 50); ctx.moveTo(260, -60); ctx.lineTo(150, 50); ctx.stroke();
+      ctx.restore();
+    } else if (st < 1.3) {
+      for (const s of SHARDS) {
+        const x = 330 + s.x * .62 + s.vx * st, y = 1440 + s.y * .62 + s.vy * st + 1500 * st * st;
+        ctx.save(); ctx.translate(x, y); ctx.rotate(s.w * st); ctx.globalAlpha = clamp(1 - st / 1.2);
+        ctx.fillStyle = '#2a3358'; ctx.beginPath(); ctx.moveTo(0, -s.s/2); ctx.lineTo(s.s/2, s.s/3); ctx.lineTo(-s.s/2.4, s.s/2); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = 'rgba(255,90,110,.6)'; ctx.lineWidth = 3; ctx.stroke(); ctx.restore();
+      }
+    }
+  });
+  // Lo врывается справа и указывает на вывод
+  const li = seg(t, 2.05, 2.55);
+  if (li > 0) {
+    const x = lerp(1300, 860, back(eo3(li), 1.5)), sq = Math.max(0, (1 - seg(t, 2.5, 2.8))) * .12 * Math.sin(seg(t, 2.5, 2.8) * 9);
+    withCam(t, .85, () => { ctx.save(); ctx.globalAlpha = 1 - out;
+      lo('teach', x, 1450 + out * 300, 380, t, {squash: sq, rot: (1 - eo3(li)) * .4}); ctx.restore(); });
+  }
+}
+
+// ---------------------------------------------------------------- сцена 3: туннель доказательств (4.5–7.6)
+const CARDS = D.tunnel.cards.slice(0, 3).map((c, i) => ({t: 5.0 + i, icon: c.icon, big: c.big, small: c.small,
+                                                          col: C[c.color] || C.blue, side: i % 2 ? 1 : -1}));
+function icon(name, x, y, s, col){
+  ctx.save(); ctx.translate(x, y); ctx.scale(s/24, s/24); ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const P = {chart: 'M3 20h18M6 20v-6M10 20V6M14 20v-9M18 20v-13', star: 'M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z',
+             tools: 'M14 6l4 4M4 20h4L19 9l-4-4L4 16z', play: 'M12 3a9 9 0 1 0 0.01 0M10 8l6 4-6 4z', data: 'M4 5c0-1.7 3.6-3 8-3s8 1.3 8 3v14c0 1.7-3.6 3-8 3s-8-1.3-8-3zM4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
+             test: 'M9 3h6M10 3v13a2 2 0 0 0 4 0V3M10 11h4', mascot: 'M4 5h16v12H4zM9 20h6M8 9h.01M16 9h.01M9 13c2 1.5 4 1.5 6 0', mac: 'M3 4h18v12H3zM2 20h20', gpu: 'M6 6h12v12H6zM9.5 9.5h5v5h-5zM9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4',
+             check: 'M12 3a9 9 0 1 0 0.01 0M8 12l3 3 5-6'};
+  ctx.stroke(new Path2D(P[name])); ctx.restore();
+}
+const CARD_CACHE = new Map();
+function ctxSwap(other, fn){ const keep = ctx; ctx = other; try { fn(); } finally { ctx = keep; } }
+function cardSprite(i, blurLevel){
+  const key = i + '|' + blurLevel;
+  if (CARD_CACHE.has(key)) return CARD_CACHE.get(key);
+  const c = CARDS[i], pad = 120, cw = 820 + pad * 2, ch = 600 + pad * 2;
+  const base = document.createElement('canvas'); base.width = cw; base.height = ch;
+  ctxSwap(base.getContext('2d'), () => {
+    ctx.translate(cw / 2, ch / 2);
+    panel(-410, -300, 820, 600, 56, C.panel2, c.col + '88');
+    ctx.save(); ctx.globalAlpha *= .14; rrect(-410, -300, 820, 600, 56); ctx.fillStyle = c.col; ctx.fill(); ctx.restore();
+    icon(c.icon, -320, -190, 96, c.col);
+    text(c.big, -330, 60, fit(c.big, c.big.length > 6 ? 140 : 190, 680, 900), C.ink, 900);
+    text(c.small, -330, 170, fit(c.small, 46, 690, 700), '#c9d2ea', 700);
+  });
+  let res = base;
+  if (blurLevel > 0) {
+    res = document.createElement('canvas'); res.width = cw; res.height = ch;
+    const r = res.getContext('2d'); r.filter = `blur(${blurLevel}px)`; r.drawImage(base, 0, 0);
+  }
+  CARD_CACHE.set(key, res);
+  return res;
+}
+function scene3(t){
+  if (t < 4.45 || t > 7.75) return;
+  const fade = (1 - seg(t, 7.5, 7.75)) * eo3(seg(t, 4.45, 4.7));
+  // камера летит по Z; карта на глубине z_i проходит фокус в момент t_i
+  for (let i = CARDS.length - 1; i >= 0; i--) {
+    const c = CARDS[i], dz = (c.t - t);              // >0 — впереди
+    // у фокуса — «зависание» ±0.22 с с медленным дрейфом (успеть прочитать), дальше — пролёт
+    const z = 1 + .12 * dz + Math.sign(dz) * 1.9 * Math.pow(Math.max(0, Math.abs(dz) - .22), 1.15);
+    if (z <= 0.18 || z > 4.2) continue;
+    const sc = 1 / z, x = W/2 - 30 + c.side * 140 * (z - 1) * 1.4 + Math.sin(t * 1.7 + i) * 12, y = H*.44 + (z - 1) * -90;
+    const blur = z < 1 ? (1 - z) * 40 : (z - 1) * 9;   // пролетевшая карта (ближе камеры) размывается сильно
+    const a = clamp((4.2 - z) * 1.2) * (z < 1 ? clamp((z - .45) / .45) : 1) * fade;
+    ctx.save();
+    ctx.translate(x, y); ctx.rotate(c.side * (z - 1) * .14 + c.side * .03); ctx.scale(sc, sc);
+    ctx.globalAlpha = a;
+    const lvl = Math.min(24, Math.round(blur / sc / 2) * 2), sp = cardSprite(i, lvl);
+    ctx.drawImage(sp, -sp.width / 2, -sp.height / 2);
+    ctx.restore();
+  }
+  // подпись сверху туннеля
+  const h = seg(t, 4.6, 4.95);
+  withCam(t, 1, () => { ctx.save(); ctx.globalAlpha = eo3(h) * fade;
+    text(D.tunnel.h1, W/2, 300, fit(D.tunnel.h1, 70, 900, 700), C.mute, 700, 'center');
+    text(D.tunnel.h2, W/2, 390, fit(D.tunnel.h2, 96, 940, 900), C.ink, 900, 'center'); ctx.restore(); });
+}
+
+// ---------------------------------------------------------------- сцена 4: призыв (7.5–10)
+function scene4(t){
+  if (t < 7.45) return;
+  const a = seg(t, 7.45, 7.95);
+  withCam(t, 1, () => {
+    ctx.save(); ctx.globalAlpha = eo3(a);
+    // карточка репозитория
+    const y = lerp(1300, 560, back(eo3(a), 1.2));
+    panel(70, y, 940, 560, 56, '#f7f8fc', 'rgba(255,255,255,.4)');
+    text(D.cta.owner + ' /', 130, y + 120, 46, '#6b7280', 600);
+    if (D.cta.version) { ctx.save(); ctx.font = `800 40px ${FONT}`; const vw = ctx.measureText(D.cta.version).width + 44;
+      rrect(950 - vw, y + 78, vw, 58, 29); ctx.fillStyle = '#4c8dff'; ctx.fill(); ctx.restore(); text(D.cta.version, 950 - 22, y + 121, 40, '#fff', 800, 'right'); }
+    text(D.cta.repo, 130, y + 215, fit(D.cta.repo, 92, 820, 900), '#1d2330', 900);
+    text(D.cta.desc[0], 130, y + 300, fit(D.cta.desc[0], 46, 820, 600), '#3b4252', 600);
+    text(D.cta.desc[1] || '', 130, y + 358, fit(D.cta.desc[1] || ' ', 46, 820, 600), '#3b4252', 600);
+    // кнопка Star: пульс на ударе 8.5
+    const p = seg(t, 8.5, 8.85), pulse = 1 + Math.sin(p * Math.PI) * .12;
+    ctx.save(); ctx.translate(310, y + 470); ctx.scale(pulse, pulse);
+    rrect(-180, -52, 360, 104, 52); ctx.fillStyle = '#1d2330'; ctx.fill();
+    ctx.fillStyle = C.gold; ctx.font = `900 56px ${FONT}`; ctx.textAlign = 'center'; ctx.fillText('★', -96, 20);
+    text('Star', 40, 20, 54, '#fff', 800, 'center');
+    ctx.restore();
+    // искры от звезды
+    if (p > 0 && p < 1) for (let i = 0; i < 10; i++) {
+      const ang = i / 10 * 6.283 + .3, r = 60 + eo3(p) * 170;
+      ctx.save(); ctx.globalAlpha = 1 - p; ctx.fillStyle = i % 2 ? C.gold : C.violet;
+      ctx.beginPath(); ctx.arc(310 - 96 + Math.cos(ang) * r, y + 470 + Math.sin(ang) * r, 9 * (1 - p) + 3, 0, 7); ctx.fill(); ctx.restore();
+    }
+    ctx.restore();
+    // крупный призыв
+    const cta = seg(t, 7.85, 8.3);
+    ctx.save(); ctx.globalAlpha = eo3(cta);
+    kinetic(D.cta.call, W/2, 1265, fit(D.cta.call, 96, 940, 900), C.ink, 7.85, t, {weight: 900, stagger: .02});
+    text(D.cta.url, W/2, 1345, fit(D.cta.url, 40, 940, 600, MONO), '#c9d2ea', 600, 'center', MONO);
+    ctx.restore();
+    const bio = seg(t, 8.6, 9.0);
+    ctx.save(); ctx.globalAlpha = eo3(bio);
+    rrect(W/2 - 250, 1390, 500, 86, 43); ctx.fillStyle = 'rgba(255,201,77,.16)'; ctx.fill();
+    text(D.cta.bio, W/2, 1448, fit(D.cta.bio, 44, 460), C.gold, 800, 'center');
+    ctx.restore();
+  });
+  // Lo машет у карточки
+  const li = seg(t, 7.7, 8.15);
+  if (li > 0) withCam(t, .9, () => lo('wave', lerp(1250, 850, back(eo3(li), 1.4)), 440 + Math.sin(t*3)*6, 280, t, {rot: Math.sin(t * 5) * .05}));
+}
+
+// ---------------------------------------------------------------- кадр
+function draw(t){
+  ctx.save(); ctx.clearRect(0, 0, W, H);
+  background(t);
+  particles(t, 'far'); particles(t, 'mid');
+  scene1(t); scene2(t); scene3(t); scene4(t);
+  particles(t, 'near');
+  // виньетка и лёгкое зерно-градиент
+  const v = ctx.createRadialGradient(W/2, H/2, H*.35, W/2, H/2, H*.75);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.45)');
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+  // вспышка-переход в туннель (мягкая, без строба)
+  const f = Math.max(0, 1 - Math.abs(t - 4.55) / .18) * .35;
+  if (f > 0) { ctx.fillStyle = `rgba(160,190,255,${f})`; ctx.fillRect(0, 0, W, H); }
+  ctx.restore();
+}
+// motion blur: накопление подкадров в пределах выдержки 180°
+const FAST = [[1.15, 1.45], [1.85, 2.45], [3.2, 3.9], [4.3, 7.5], [7.45, 8.1]];
+window.renderFrame = function(t, fps=60, samples=null){
+  if (samples === null) samples = FAST.some(([a, b]) => t >= a && t <= b) ? 6 : 2;
+  octx.globalCompositeOperation = 'source-over';
+  octx.globalAlpha = 1;
+  for (let k = 0; k < samples; k++) {
+    const ts = Math.min(DUR - 1e-4, t + (k / samples) * (0.5 / fps));
+    draw(ts);
+    octx.globalAlpha = 1 / (k + 1);
+    octx.drawImage(buf, 0, 0);
+  }
+  octx.globalAlpha = 1;
+  return true;
+};
+window.ready = () => Object.values(LO).every(im => im.complete) && document.fonts.ready.then(() => true);
+renderFrame(0);
+</script>
+</body></html>

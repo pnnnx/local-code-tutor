@@ -1,0 +1,40 @@
+# Ролик для TikTok к каждому релизу: собирается из promo/ и прикладывается к релизу (mp4 + обложка).
+# Тексты релиза — promo/releases/<тег>.json (нет файла — базовые тексты с номером версии).
+name: promo video
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "версия, например v0.4.0"
+        required: true
+permissions:
+  contents: write
+jobs:
+  video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Зависимости
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install -q playwright numpy scipy
+          python -m playwright install --with-deps chromium
+      - name: Собрать ролик
+        run: python promo/build.py "$TAG"
+      - name: Приложить к релизу
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "promo/out/$TAG.mp4" "promo/out/${TAG}_cover.png" --clobber
+      - uses: actions/upload-artifact@v4
+        with:
+          name: promo-${{ env.TAG }}
+          path: promo/out/

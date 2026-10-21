@@ -1,0 +1,15 @@
+{
+ "_comment": "Базовые тексты ролика. Файл релиза (releases/vX.Y.Z.json) переопределяет только то, что в нём указано.",
+ "hook": {"l1": "ИИ уверенно", "l2": "ГАДАЕТ", "file": "squares.py",
+          "code": ["squares = (n*n for n in range(4))", "print(sum(squares))", "print(sum(squares))"],
+          "who": "чат-бот:", "bubble": "«выведет 6 и 6»"},
+ "run": {"l1": "а моя модель", "l2": "ЗАПУСКАЕТ", "l3": "код", "cmd": "$ python3 squares.py",
+         "out": ["14", "0"], "explain": ["генератор", "уже пуст →", "второй sum = 0"]},
+ "tunnel": {"h1": "и всё это —", "h2": "открытый код",
+            "cards": [{"icon": "mac", "big": "7B-модель", "small": "на MacBook с 8 ГБ", "color": "blue"},
+                      {"icon": "gpu", "big": "0 ₽", "small": "дообучил на бесплатном GPU", "color": "gold"},
+                      {"icon": "check", "big": "8 → 13", "small": "фактов из 18 после обучения", "color": "green"}]},
+ "cta": {"owner": "pnnnx", "repo": "local-code-tutor", "version": "",
+         "desc": ["7B-наставник по коду,", "который не угадывает, а проверяет"],
+         "call": "залетай в репо", "url": "github.com/pnnnx/local-code-tutor", "bio": "ссылка в профиле ↑"}
+}
