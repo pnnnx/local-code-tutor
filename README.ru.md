@@ -127,7 +127,9 @@ SQLite, PyTorch, веса) исправила позднее связывани�
 
 <img src="assets/wtools_diff_ru.png" alt="wtools diff по глубине" width="100%">
 
-<p align="center"><img src="assets/wtools_lora_ru.png" alt="wtools lora: ‖ΔW‖ по модулям" width="49%"> <img src="assets/wtools_spectrum_ru.png" alt="спектр ΔW" width="49%"></p>
+<img src="assets/wtools_lora_ru.png" alt="wtools lora: ‖ΔW‖ по модулям" width="100%">
+
+<img src="assets/wtools_spectrum_ru.png" alt="спектр ΔW" width="100%">
 
 *Настоящий вывод `wtools` на игрушечной модели из 12 слоёв (`scripts/brand/wtools_demo.py`).* Модель в loca картинки не видит, поэтому все числа с графика
 дублируются в тексте — она объясняет их по числам.

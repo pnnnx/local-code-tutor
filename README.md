@@ -214,10 +214,9 @@ Details: [docs/RESULTS.md](docs/RESULTS.md).
 
 <img src="assets/wtools_diff_en.png" alt="wtools diff: relative change of every weight matrix across depth" width="100%">
 
-<p align="center">
-  <img src="assets/wtools_lora_en.png" alt="wtools lora: ‖ΔW‖ per module" width="49%">
-  <img src="assets/wtools_spectrum_en.png" alt="wtools lora: ΔW spectrum" width="49%">
-</p>
+<img src="assets/wtools_lora_en.png" alt="wtools lora: ‖ΔW‖ per module" width="100%">
+
+<img src="assets/wtools_spectrum_en.png" alt="wtools lora: ΔW spectrum" width="100%">
 
 <sub>Real output of `wtools` on a 12-layer toy model (`scripts/brand/wtools_demo.py`). The agent can't see images, so every number on a chart is also
 printed as text — the model explains the chart from the numbers.</sub>

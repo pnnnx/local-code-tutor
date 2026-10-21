@@ -26,9 +26,10 @@ import torch
 # ---------------------------------------------------------------- оформление графиков
 # Стиль как у витрины (scripts/brand): белая карточка со скруглением, пастельная заливка под линиями,
 # палитра бренда. Подписи — по-русски; WTOOLS_LANG=en — по-английски (для README и англоязычных пользователей).
-SERIES = ["#2a78d6", "#d0632a", "#23855c", "#7a4fd0", "#c8456a", "#a87a00"]
+SERIES = ["#2a78d6", "#d0632a", "#23855c", "#7a4fd0", "#c8456a", "#a87a00", "#0f8b8d"]
 SURFACE, INK, MUTED, GRID = "#ffffff", "#2b2f3a", "#6b7280", "#e9ecf2"
 LANG = os.environ.get("WTOOLS_LANG", "ru")
+W, H = 8.5, 3.4          # все графики одной ширины и высоты: рядом в отчёте и в README выглядят как набор
 
 
 def _t(ru: str, en: str) -> str:
@@ -196,7 +197,7 @@ def inspect(path, out="weights_report", top: int = 40) -> tuple[str, list[str]]:
              _table(["блок", "параметров", "доля"],
                     [[g, f"{n:,}".replace(",", " "), f"{100 * n / total:.1f}%"] for g, n in top_groups])]
     plt = _plt()
-    fig, ax = plt.subplots(figsize=(7, 0.32 * len(top_groups) + 1.2))
+    fig, ax = plt.subplots(figsize=(W, 0.32 * len(top_groups) + 1.4))
     labels = [_short(g, 34) for g, _ in top_groups][::-1]
     vals = [100 * n / total for _, n in top_groups][::-1]
     ax.barh(labels, vals, color=SERIES[0], height=0.62, alpha=0.9)
@@ -250,7 +251,7 @@ def stats(path, out="weights_report", tensor: str | None = None, top: int = 30) 
     plt = _plt()
     # 1) RMS по тензорам в порядке модели: видно, как масштаб весов меняется по глубине
     weights = [n for n in names if state[n].dim() >= 2] or names
-    fig, ax = plt.subplots(figsize=(8, 3.2))
+    fig, ax = plt.subplots(figsize=(W, H))
     rms = [st[n]["rms"] for n in weights]
     _line(ax, range(len(weights)), rms)
     ax.set_xlabel(_t("матрица весов в порядке модели", "weight matrix, in model order"))
@@ -265,7 +266,7 @@ def stats(path, out="weights_report", tensor: str | None = None, top: int = 30) 
     x = _float(state[pick]).flatten()
     if x.numel() > 2_000_000:
         x = x[torch.randperm(x.numel(), generator=torch.Generator().manual_seed(0))[:2_000_000]]
-    fig, ax = plt.subplots(figsize=(7, 3.2))
+    fig, ax = plt.subplots(figsize=(W, H))
     ax.hist(x.numpy(), bins=120, color=SERIES[0], alpha=0.85, log=True, edgecolor="white", linewidth=0.3)
     s = st[pick]
     for k in (-6, 6):
@@ -318,14 +319,14 @@ def diff(path_a, path_b, out="weights_report", top: int = 20) -> tuple[str, list
     if changed:
         plt = _plt()
         shown = order[:top][::-1]
-        fig, ax = plt.subplots(figsize=(7.5, 0.3 * len(shown) + 1.3))
+        fig, ax = plt.subplots(figsize=(W, 0.3 * len(shown) + 1.4))
         ax.barh([_short(n, 40) for n, *_ in shown], [100 * r for _, _, r, _ in shown], color=SERIES[0], height=0.62, alpha=0.9)
         ax.set_xlabel(_t("относительное изменение ‖ΔW‖/‖W‖, %", "relative change ‖ΔW‖/‖W‖, %"))
         ax.set_title(_t(f"Какие слои изменились сильнее всего (топ-{len(shown)})", f"Most changed layers (top {len(shown)})"))
         ax.grid(axis="y", visible=False)
         pngs.append(_save(fig, Path(out), "diff_top.png"))
         series = [r for r in res if a[r[0]].dim() >= 2] or res
-        fig, ax = plt.subplots(figsize=(8, 3))
+        fig, ax = plt.subplots(figsize=(W, H))
         vals = [100 * r for _, _, r, _ in series]
         _line(ax, range(len(series)), vals)
         ax.set_xlabel(_t("матрица весов в порядке модели", "weight matrix, in model order"))
@@ -399,7 +400,7 @@ def lora(path, out="weights_report", alpha: float | None = None, r: int | None =
     pngs = []
     kinds = sorted(per_kind, key=lambda k: -sum(per_kind[k]) / len(per_kind[k]))
     color = {k: SERIES[i] if i < len(SERIES) else MUTED for i, k in enumerate(kinds)}
-    fig, ax = plt.subplots(figsize=(8, 3.2))
+    fig, ax = plt.subplots(figsize=(W, H))
     for i, (n, k, *_rest) in enumerate(rows):
         ax.bar(i, _rest[2], color=color[k], width=0.78, alpha=0.9)
     from matplotlib.patches import Patch
@@ -409,10 +410,11 @@ def lora(path, out="weights_report", alpha: float | None = None, r: int | None =
     ax.set_xlabel(_t("модуль в порядке модели", "module, in model order"))
     ax.set_ylabel("‖ΔW‖")
     _depth_axis(ax, [x[0] for x in rows])
+    ax.set_xlabel(_t("слой (столбец — один модуль с LoRA)", "layer (one bar = one LoRA module)"))
     ax.set_ylim(0, max(x[4] for x in rows) * 1.3 or 1)          # место для легенды над столбцами
     ax.set_title(_t("Насколько адаптер меняет каждый модуль", "How much the adapter changes each module"))
     pngs.append(_save(fig, Path(out), "lora_norms.png"))
-    fig, ax = plt.subplots(figsize=(6.5, 3.2))
+    fig, ax = plt.subplots(figsize=(W, H))
     for k in kinds[:len(SERIES)]:
         arr = torch.tensor([sp + [0.0] * (max(map(len, spectra[k])) - len(sp)) for sp in spectra[k]]).mean(0)
         _line(ax, range(1, len(arr) + 1), arr.tolist(), color=color[k], label=k, fill=False)
@@ -471,7 +473,7 @@ def quant(path, out="weights_report", bits: int = 4, top: int = 20) -> tuple[str
     pngs = []
     if res:
         plt = _plt()
-        fig, ax = plt.subplots(figsize=(8, 3.3))
+        fig, ax = plt.subplots(figsize=(W, H))
         labels = {"tensor": _t("один масштаб на тензор", "one scale per tensor"), "row": _t("на строку", "per row"), "block": _t("блоки по 32", "32-blocks")}
         for i, m in enumerate(("tensor", "row", "block")):
             _line(ax, range(len(res)), [100 * r[1][m] for r in res], color=SERIES[i], label=labels[m], fill=False)
@@ -591,7 +593,7 @@ def snapshot(path, out="weights_report", rows: int = 256) -> tuple[str, list[str
             k = GGUF_KIND.search(t["name"]).group(1)
             if k not in kinds:
                 kinds.append(k)
-        fig, ax = plt.subplots(figsize=(8.5, 3.4))
+        fig, ax = plt.subplots(figsize=(W, H + 0.6))
         for i, k in enumerate(kinds[:len(SERIES)]):
             pts = [(int(m.group(1)), t["rms"]) for t in mats if GGUF_KIND.search(t["name"]).group(1) == k
                    for m in [re.search(r"(?:blk|layers)\.(\d+)\.", t["name"])] if m]
@@ -601,16 +603,16 @@ def snapshot(path, out="weights_report", rows: int = 256) -> tuple[str, list[str
         ax.set_xlabel(_t("номер слоя", "layer"))
         ax.set_ylabel(_t("RMS веса", "weight RMS"))
         ax.set_title(_t("Масштаб весов по слоям и типам матриц", "Weight scale by layer and matrix type"))
-        ax.legend(ncol=min(4, len(kinds)), fontsize=8.5)
+        ax.legend(ncol=min(7, len(kinds)), fontsize=8, loc="upper center", bbox_to_anchor=(0.5, -0.2))
         pngs.append(_save(fig, out, "snapshot_rms.png"))
-        fig, ax = plt.subplots(figsize=(8.5, 3.2))
+        fig, ax = plt.subplots(figsize=(W, H))
         xs = list(range(len(mats)))
         _line(ax, xs, [t["tail"] for t in mats], color=SERIES[3])
         ax.set_ylabel("|max| / σ")
         ax.set_title(_t("«Хвосты» распределений: где живут выбросы", "Distribution tails: where the outliers live"))
         _depth_axis(ax, [t["name"].replace("blk.", "layers.") for t in mats], [t["tail"] for t in mats], lambda v: f"{v:.0f}σ")
         pngs.append(_save(fig, out, "snapshot_tails.png"))
-    fig, ax = plt.subplots(figsize=(6.5, 0.45 * len(by_type) + 1.4))
+    fig, ax = plt.subplots(figsize=(W, 0.42 * len(by_type) + 1.5))
     order = sorted(by_type.items(), key=lambda kv: kv[1])
     ax.barh([k for k, _ in order], [100 * v / total for _, v in order], color=SERIES[0], height=0.6, alpha=0.9)
     for y, (_, v) in enumerate(order):

@@ -11,6 +11,13 @@ case "$cmd" in
   java-prompt) python3 tools/prompt.py java_claude "$@" ;;
   claude)  python3 tools/claude_prompt.py "$@" ;;
   build)   python3 tools/merge.py && echo "Готово: $(pwd)/explain_ru_train.jsonl — его и загружайте в Kaggle" ;;
+  traces)  sub="$1"; [ $# -gt 0 ] && shift
+           case "$sub" in
+             build) python3 ../traces/build_tasks.py "$@" ;;
+             kit)   python3 ../traces/kit.py ;;
+             add|status) python3 ../traces/review.py "$sub" "$@" ;;
+             *) echo "./ds.sh traces build | kit | add results.zip [--yes] | status" ;;
+           esac ;;
   *) cat <<'HELP'
 ./ds.sh                     ПРОЩЕ ВСЕГО: выбрать тему и идти по шагам
 ./ds.sh setup               установить всё, что нужно для проверки примеров (один раз)
@@ -23,6 +30,10 @@ case "$cmd" in
 ./ds.sh java-prompt         промпт для Java-датасета по своим практикам (другой чат Claude) → в буфер
 ./ds.sh persona             режим «ворчун»: реакции с матом поверх готовых примеров
 ./ds.sh build               собрать explain_ru_train.jsonl для обучения
+./ds.sh traces build        задачи для трасс с инструментами (algo-cli, мутации, «что выведет»)
+./ds.sh traces kit          traces_kit.zip для Kaggle (loca + скрипты + задачи)
+./ds.sh traces add <zip>    результаты Kaggle → просмотр спорных → ds/traces/traces.jsonl → коммит
+./ds.sh traces status       сколько трасс собрано
 HELP
   ;;
 esac
