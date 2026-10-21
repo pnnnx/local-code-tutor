@@ -16,36 +16,62 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
 from pathlib import Path
 
 import torch
 
 # ---------------------------------------------------------------- оформление графиков
-# палитра и поверхность — эталонная из dataviz (категориальный порядок фиксирован, не по кругу)
-SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"]
-SURFACE, INK, MUTED, GRID = "#fcfcfb", "#1f1f1e", "#6b6a63", "#e6e5df"
+# Стиль как у витрины (scripts/brand): белая карточка со скруглением, пастельная заливка под линиями,
+# палитра бренда. Подписи — по-русски; WTOOLS_LANG=en — по-английски (для README и англоязычных пользователей).
+SERIES = ["#2a78d6", "#d0632a", "#23855c", "#7a4fd0", "#c8456a", "#a87a00"]
+SURFACE, INK, MUTED, GRID = "#ffffff", "#2b2f3a", "#6b7280", "#e9ecf2"
+LANG = os.environ.get("WTOOLS_LANG", "ru")
+
+
+def _t(ru: str, en: str) -> str:
+    return en if LANG == "en" else ru
 
 
 def _plt():
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib import font_manager
+    fonts = {f.name for f in font_manager.fontManager.ttflist}
+    family = next((f for f in ("Inter", "SF Pro Text", "Helvetica Neue", "Arial") if f in fonts), "DejaVu Sans")
     plt.rcParams.update({
-        "figure.facecolor": SURFACE, "axes.facecolor": SURFACE, "savefig.facecolor": SURFACE,
+        "font.family": family, "font.size": 9.5,
+        "figure.facecolor": "none", "axes.facecolor": "none", "savefig.facecolor": "none",
         "axes.edgecolor": GRID, "axes.labelcolor": MUTED, "xtick.color": MUTED, "ytick.color": MUTED,
-        "text.color": INK, "axes.grid": True, "grid.color": GRID, "grid.linewidth": 0.8,
-        "axes.spines.top": False, "axes.spines.right": False, "font.size": 9,
-        "axes.titlesize": 11, "axes.titleweight": "bold", "axes.titlelocation": "left",
+        "text.color": INK, "axes.grid": True, "grid.color": GRID, "grid.linewidth": 0.9, "grid.linestyle": (0, (4, 3)),
+        "axes.spines.top": False, "axes.spines.right": False, "axes.spines.left": False,
+        "xtick.major.size": 0, "ytick.major.size": 0, "xtick.major.pad": 6, "ytick.major.pad": 6,
+        "axes.titlesize": 12.5, "axes.titleweight": "bold", "axes.titlelocation": "left", "axes.titlepad": 14,
+        "axes.titlecolor": INK, "axes.labelsize": 9, "axes.labelpad": 8, "legend.frameon": False,
+        "axes.prop_cycle": matplotlib.cycler(color=SERIES), "axes.axisbelow": True,
     })
     return plt
 
 
+def _line(ax, xs, ys, color=SERIES[0], label=None, fill=True) -> None:
+    """Линия с мягкой заливкой (если она одна на графике) и точками с белой обводкой."""
+    if fill:
+        ax.fill_between(xs, ys, 0, color=color, alpha=0.10, linewidth=0)
+    ax.plot(xs, ys, color=color, linewidth=2.2, marker="o", markersize=4, markeredgecolor="white",
+            markeredgewidth=1, label=label, solid_capstyle="round")
+
+
 def _save(fig, out: Path, name: str) -> str:
+    from matplotlib.patches import FancyBboxPatch
     out.mkdir(parents=True, exist_ok=True)
     path = out / name
-    fig.tight_layout()
-    fig.savefig(path, dpi=130)
+    fig.tight_layout(pad=1.6)
+    fig.patches.append(FancyBboxPatch((0.004, 0.006), 0.992, 0.988, boxstyle="round,pad=0,rounding_size=0.035",
+                                      transform=fig.transFigure, facecolor=SURFACE, edgecolor="#e6e8ef",
+                                      linewidth=1, zorder=-10, mutation_aspect=fig.get_figwidth() / fig.get_figheight()))
+    fig.savefig(path, dpi=200, transparent=True)
     import matplotlib.pyplot as plt
     plt.close(fig)
     return str(path)
@@ -64,11 +90,11 @@ def _depth_axis(ax, names: list[str], values: list[float] | None = None, fmt=lam
     if pos:
         step = max(1, len(pos) // 12)
         ax.set_xticks(pos[::step], labels[::step])
-        ax.set_xlabel("слой модели (точка — одна матрица весов)")
+        ax.set_xlabel(_t("слой модели (точка — одна матрица весов)", "layer (one dot = one weight matrix)"))
     if values:
         i = max(range(len(values)), key=lambda k: values[k])
         ax.annotate(f"{compact(names[i])}: {fmt(values[i])}", (i, values[i]), xytext=(6, 4),
-                    textcoords="offset points", fontsize=8, color=INK)
+                    textcoords="offset points", fontsize=8.5, color=INK, fontweight="bold")
         ax.set_ylim(0, max(values) * 1.18 or 1)
 
 
@@ -172,9 +198,9 @@ def inspect(path, out="weights_report", top: int = 40) -> tuple[str, list[str]]:
     fig, ax = plt.subplots(figsize=(7, 0.32 * len(top_groups) + 1.2))
     labels = [_short(g, 34) for g, _ in top_groups][::-1]
     vals = [100 * n / total for _, n in top_groups][::-1]
-    ax.barh(labels, vals, color=SERIES[0], height=0.6)
-    ax.set_xlabel("доля параметров, %")
-    ax.set_title("Где лежат параметры модели")
+    ax.barh(labels, vals, color=SERIES[0], height=0.62, alpha=0.9)
+    ax.set_xlabel(_t("доля параметров, %", "share of parameters, %"))
+    ax.set_title(_t("Где лежат параметры модели", "Where the parameters live"))
     ax.grid(axis="y", visible=False)
     for y, v in enumerate(vals):
         ax.text(v, y, f" {v:.1f}%", va="center", color=MUTED, fontsize=8)
@@ -225,10 +251,10 @@ def stats(path, out="weights_report", tensor: str | None = None, top: int = 30) 
     weights = [n for n in names if state[n].dim() >= 2] or names
     fig, ax = plt.subplots(figsize=(8, 3.2))
     rms = [st[n]["rms"] for n in weights]
-    ax.plot(range(len(weights)), rms, color=SERIES[0], linewidth=2, marker="o", markersize=3)
-    ax.set_xlabel("матрица весов в порядке модели")
-    ax.set_ylabel("RMS веса")
-    ax.set_title("Масштаб весов по глубине модели")
+    _line(ax, range(len(weights)), rms)
+    ax.set_xlabel(_t("матрица весов в порядке модели", "weight matrix, in model order"))
+    ax.set_ylabel(_t("RMS веса", "weight RMS"))
+    ax.set_title(_t("Масштаб весов по глубине модели", "Weight scale across depth"))
     _depth_axis(ax, weights, rms, _fmt)
     pngs.append(_save(fig, Path(out), "stats_rms_by_layer.png"))
     text += ["", "График stats_rms_by_layer.png — RMS по матрицам в порядке модели:",
@@ -239,13 +265,13 @@ def stats(path, out="weights_report", tensor: str | None = None, top: int = 30) 
     if x.numel() > 2_000_000:
         x = x[torch.randperm(x.numel(), generator=torch.Generator().manual_seed(0))[:2_000_000]]
     fig, ax = plt.subplots(figsize=(7, 3.2))
-    ax.hist(x.numpy(), bins=120, color=SERIES[0], log=True)
+    ax.hist(x.numpy(), bins=120, color=SERIES[0], alpha=0.85, log=True, edgecolor="white", linewidth=0.3)
     s = st[pick]
     for k in (-6, 6):
         ax.axvline(s["mean"] + k * s["std"], color=MUTED, linewidth=1, linestyle="--")
-    ax.set_title(f"Распределение весов: {_short(pick, 50)}")
-    ax.set_xlabel("значение веса (пунктир — ±6σ)")
-    ax.set_ylabel("сколько весов (лог. шкала)")
+    ax.set_title(_t("Распределение весов: ", "Weight distribution: ") + _short(pick, 50))
+    ax.set_xlabel(_t("значение веса (пунктир — ±6σ)", "weight value (dashed: ±6σ)"))
+    ax.set_ylabel(_t("сколько весов (лог. шкала)", "count (log scale)"))
     pngs.append(_save(fig, Path(out), "stats_hist.png"))
     q = torch.quantile(x, torch.tensor([0.001, 0.5, 0.999])).tolist() if x.numel() < 16_000_000 else [float("nan")] * 3
     text += ["", f"График stats_hist.png — гистограмма {pick}: mean={_fmt(s['mean'])}, σ={_fmt(s['std'])}, "
@@ -292,18 +318,18 @@ def diff(path_a, path_b, out="weights_report", top: int = 20) -> tuple[str, list
         plt = _plt()
         shown = order[:top][::-1]
         fig, ax = plt.subplots(figsize=(7.5, 0.3 * len(shown) + 1.3))
-        ax.barh([_short(n, 40) for n, *_ in shown], [100 * r for _, _, r, _ in shown], color=SERIES[0], height=0.6)
-        ax.set_xlabel("относительное изменение ‖ΔW‖/‖W‖, %")
-        ax.set_title(f"Какие слои изменились сильнее всего (топ-{len(shown)})")
+        ax.barh([_short(n, 40) for n, *_ in shown], [100 * r for _, _, r, _ in shown], color=SERIES[0], height=0.62, alpha=0.9)
+        ax.set_xlabel(_t("относительное изменение ‖ΔW‖/‖W‖, %", "relative change ‖ΔW‖/‖W‖, %"))
+        ax.set_title(_t(f"Какие слои изменились сильнее всего (топ-{len(shown)})", f"Most changed layers (top {len(shown)})"))
         ax.grid(axis="y", visible=False)
         pngs.append(_save(fig, Path(out), "diff_top.png"))
         series = [r for r in res if a[r[0]].dim() >= 2] or res
         fig, ax = plt.subplots(figsize=(8, 3))
         vals = [100 * r for _, _, r, _ in series]
-        ax.plot(range(len(series)), vals, color=SERIES[0], linewidth=2, marker="o", markersize=3)
-        ax.set_xlabel("матрица весов в порядке модели")
+        _line(ax, range(len(series)), vals)
+        ax.set_xlabel(_t("матрица весов в порядке модели", "weight matrix, in model order"))
         ax.set_ylabel("‖ΔW‖/‖W‖, %")
-        ax.set_title("Изменение по глубине модели")
+        ax.set_title(_t("Что сдвинуло дообучение — по глубине модели", "What fine-tuning moved, across depth"))
         _depth_axis(ax, [n for n, *_ in series], vals, lambda v: f"{v:.2f}%")
         pngs.append(_save(fig, Path(out), "diff_by_depth.png"))
         text += ["", "График diff_by_depth.png — изменение по глубине (в %): "
@@ -374,26 +400,26 @@ def lora(path, out="weights_report", alpha: float | None = None, r: int | None =
     color = {k: SERIES[i] if i < len(SERIES) else MUTED for i, k in enumerate(kinds)}
     fig, ax = plt.subplots(figsize=(8, 3.2))
     for i, (n, k, *_rest) in enumerate(rows):
-        ax.bar(i, _rest[2], color=color[k], width=0.8)
+        ax.bar(i, _rest[2], color=color[k], width=0.78, alpha=0.9)
     from matplotlib.patches import Patch
     ax.legend(handles=[Patch(color=color[k], label=k) for k in kinds[:len(SERIES)]]
-              + ([Patch(color=MUTED, label="другие")] if len(kinds) > len(SERIES) else []),
-              frameon=False, fontsize=8, ncol=min(4, len(kinds)))
-    ax.set_xlabel("модуль в порядке модели")
+              + ([Patch(color=MUTED, label=_t("другие", "other"))] if len(kinds) > len(SERIES) else []),
+              frameon=False, fontsize=8.5, ncol=min(4, len(kinds)))
+    ax.set_xlabel(_t("модуль в порядке модели", "module, in model order"))
     ax.set_ylabel("‖ΔW‖")
     _depth_axis(ax, [x[0] for x in rows])
     ax.set_ylim(0, max(x[4] for x in rows) * 1.3 or 1)          # место для легенды над столбцами
-    ax.set_title("Насколько адаптер меняет каждый модуль")
+    ax.set_title(_t("Насколько адаптер меняет каждый модуль", "How much the adapter changes each module"))
     pngs.append(_save(fig, Path(out), "lora_norms.png"))
     fig, ax = plt.subplots(figsize=(6.5, 3.2))
     for k in kinds[:len(SERIES)]:
         arr = torch.tensor([sp + [0.0] * (max(map(len, spectra[k])) - len(sp)) for sp in spectra[k]]).mean(0)
-        ax.plot(range(1, len(arr) + 1), arr.tolist(), color=color[k], linewidth=2, marker="o", markersize=3, label=k)
-    ax.set_xlabel("номер сингулярного числа")
-    ax.set_ylabel("σᵢ / σ₁ (среднее по модулям)")
+        _line(ax, range(1, len(arr) + 1), arr.tolist(), color=color[k], label=k, fill=False)
+    ax.set_xlabel(_t("номер сингулярного числа", "singular value index"))
+    ax.set_ylabel(_t("σᵢ / σ₁ (среднее по модулям)", "σᵢ / σ₁ (mean over modules)"))
     ax.set_ylim(0, 1.05)
-    ax.set_title("Спектр ΔW: сколько направлений использует адаптер")
-    ax.legend(frameon=False, fontsize=8)
+    ax.set_title(_t("Спектр ΔW: сколько направлений использует адаптер", "ΔW spectrum: how many directions the adapter uses"))
+    ax.legend(frameon=False, fontsize=8.5)
     pngs.append(_save(fig, Path(out), "lora_spectrum.png"))
     text += ["", "График lora_spectrum.png — средний нормированный спектр σᵢ/σ₁ по типам: " + "; ".join(
         f"{k}: " + ", ".join(f"{v:.2f}" for v in torch.tensor(
@@ -445,14 +471,13 @@ def quant(path, out="weights_report", bits: int = 4, top: int = 20) -> tuple[str
     if res:
         plt = _plt()
         fig, ax = plt.subplots(figsize=(8, 3.3))
-        labels = {"tensor": "один масштаб на тензор", "row": "на строку", "block": "блоки по 32"}
+        labels = {"tensor": _t("один масштаб на тензор", "one scale per tensor"), "row": _t("на строку", "per row"), "block": _t("блоки по 32", "32-blocks")}
         for i, m in enumerate(("tensor", "row", "block")):
-            ax.plot(range(len(res)), [100 * r[1][m] for r in res], color=SERIES[i], linewidth=2,
-                    marker="o", markersize=3, label=labels[m])
-        ax.set_xlabel("матрица весов в порядке модели")
-        ax.set_ylabel("относительная ошибка, %")
+            _line(ax, range(len(res)), [100 * r[1][m] for r in res], color=SERIES[i], label=labels[m], fill=False)
+        ax.set_xlabel(_t("матрица весов в порядке модели", "weight matrix, in model order"))
+        ax.set_ylabel(_t("относительная ошибка, %", "relative error, %"))
         _depth_axis(ax, [r[0] for r in res], [100 * r[1]["tensor"] for r in res], lambda v: f"{v:.1f}%")
-        ax.set_title(f"Ошибка int{bits} по слоям")
+        ax.set_title(_t(f"Ошибка int{bits} по слоям", f"int{bits} error per layer"))
         ax.legend(frameon=False, fontsize=8)
         pngs.append(_save(fig, Path(out), f"quant_int{bits}.png"))
     return "\n".join(text), pngs

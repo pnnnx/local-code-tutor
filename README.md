@@ -164,7 +164,7 @@ All numbers are measured, including the ones that didn't go my way.
 
 ### 1. Fixing 7B failure modes inside the agent
 
-![before vs after](assets/bottlenecks_7b_en.png)
+<img src="assets/brand/cards/bottlenecks.png" alt="Qwen2.5-Coder-7B inside loca, before → after: #8 guesses instead of asking 1/4 → 4/4; #4 can't run code in its head 0/1 → 2/2" width="100%">
 
 Measured on the real thing: **Qwen2.5-Coder-7B-Instruct Q4_K_M** in `llama-server`, with a probe
 harness that runs the same requests before and after each fix (`bench/probe.py` in loca).
@@ -180,9 +180,7 @@ harness that runs the same requests before and after each fix (`bench/probe.py` 
 
 ### 2. Fine-tuning: v2 learned the *form*, v3 started getting the *facts*
 
-![held-out eval](assets/eval_v3_en.png)
-
-<sub>* v2 was evaluated before PyTorch questions e16–e18 were added.</sub>
+<img src="assets/brand/cards/eval.png" alt="Key facts on 18 held-out questions: base + prompt 8/18, fine-tuned v2 9/15, fine-tuned v3 13/18, v4 training" width="100%">
 
 **v2** answered exactly in the target style (verdict first, precise mechanism, fixed code) — **but
 confidently invented outputs**: `[3, 3, 3]` instead of `[2, 2, 2]`, "6" instead of 14. **v3** added
@@ -209,12 +207,14 @@ Details: [docs/RESULTS.md](docs/RESULTS.md).
 
 </details>
 
+<img src="assets/wtools_diff_en.png" alt="wtools diff: relative change of every weight matrix across depth" width="100%">
+
 <p align="center">
-  <img src="assets/wtools_diff_en.png" width="49%">
-  <img src="assets/wtools_lora_en.png" width="49%">
+  <img src="assets/wtools_lora_en.png" alt="wtools lora: ‖ΔW‖ per module" width="49%">
+  <img src="assets/wtools_spectrum_en.png" alt="wtools lora: ΔW spectrum" width="49%">
 </p>
 
-<sub>Toy model from the test suite. The agent can't see images, so every number on a chart is also
+<sub>Real output of `wtools` on a 12-layer toy model (`scripts/brand/wtools_demo.py`). The agent can't see images, so every number on a chart is also
 printed as text — the model explains the chart from the numbers.</sub>
 
 ## Quick start
