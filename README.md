@@ -178,15 +178,20 @@ harness that runs the same requests before and after each fix (`bench/probe.py` 
   asked about `tricky.py`, the model replied *"that file doesn't exist"* without calling a single tool.
   Fix: the agent runs the code itself and puts the source + real output in context before the model speaks.
 
-### 2. Fine-tuning: v2 learned the *form*, v3 started getting the *facts*
+### 2. Fine-tuning: v2 learned the *form*, v3 got the *facts*, v4 hit a plateau
 
-<img src="assets/brand/cards/eval.png" alt="Key facts on 18 held-out questions: base + prompt 8/18, fine-tuned v2 9/15, fine-tuned v3 13/18, v4 training" width="100%">
+<img src="assets/brand/cards/eval.png" alt="Key facts on 18 held-out questions: base + prompt 8/18, fine-tuned v2 9/15, fine-tuned v3 13/18, fine-tuned v4 13/18" width="100%">
 
 **v2** answered exactly in the target style (verdict first, precise mechanism, fixed code) — **but
 confidently invented outputs**: `[3, 3, 3]` instead of `[2, 2, 2]`, "6" instead of 14. **v3** added
 pandas, SQLite analytics, PyTorch and weight-analysis examples: late binding is now right, the SQL
 answer uses SQLite's `STRFTIME` + `LAG`, the PyTorch questions pass. It **still can't do arithmetic in
 its head** (e07, e13) — which is exactly why the agent runs code instead of trusting the model.
+
+**v4** (1,581 examples, +66 %: pandas, dashboards, SQL analytics, systems, Java) scored **the same 13/18 on exactly
+the same questions**. Every remaining miss is a *concrete value invented in the head* — a sum, a printed loss,
+which rows a query returns. More explanation data doesn't fix that; running the code does. The held-out set is
+also too Python-basics-heavy to see what v4 added, so the next eval version gets Java, pandas and dashboard questions.
 Details: [docs/RESULTS.md](docs/RESULTS.md).
 
 ### 3. Look inside the network — with charts
