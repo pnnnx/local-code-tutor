@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/brand/banner.png" alt="local-code-tutor — Lo" width="100%"></p>
+
 # Local Code Tutor — локальный 7B-наставник по коду, который не угадывает, а проверяет
 
 [English](README.md)
@@ -15,6 +17,18 @@ as MCP tools for the agent.
 
 Студенческий проект: своя модель-помощник по коду, которая работает на ноутбуке и объясняет
 по-русски — механизм, «почему так», подвохи, аналитику (pandas, SQL, дашборды) и веса нейросетей.
+
+<table align="center">
+<tr>
+<td align="center" width="20%"><img src="assets/brand/lo_teach.png" width="110" alt=""><br><b>объясняет</b><br><sub>механизм, «почему», подвох</sub></td>
+<td align="center" width="20%"><img src="assets/brand/lo_think.png" width="110" alt=""><br><b>думает вслух</b><br><sub>мысли видно сразу</sub></td>
+<td align="center" width="20%"><img src="assets/brand/lo_grumpy.png" width="110" alt=""><br><b>ворчун</b><br><sub>только если включить</sub></td>
+<td align="center" width="20%"><img src="assets/brand/lo_weights.png" width="110" alt=""><br><b>смотрит в веса</b><br><sub>графики LoRA</sub></td>
+<td align="center" width="20%"><img src="assets/brand/lo_olymp.png" width="110" alt=""><br><b>олимпиады</b><br><sub>скоро</sub></td>
+</tr>
+</table>
+
+Талисман проекта — Lo, маленький терминал в академической шапочке: наставник, который живёт у тебя на ноутбуке.
 
 ## Цель проекта
 

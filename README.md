@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/brand/banner.png" alt="local-code-tutor — Lo, a tiny code tutor that runs your code instead of guessing" width="100%">
+
 # Local Code Tutor
 
 ### Fine-tune Qwen2.5-Coder-7B for free and run a coding agent that *runs your code instead of guessing* — on an 8 GB MacBook
@@ -16,6 +18,20 @@
 [Goal](#goal) · [At a glance](#at-a-glance) · [Results](#results) · [Quick start](#quick-start) · [How it works](#how-it-works) · [Lessons learned](#lessons-learned) · [Roadmap](#roadmap) · [Русская версия](README.ru.md)
 
 </div>
+
+## Meet Lo
+
+<table align="center">
+<tr>
+<td align="center" width="20%"><img src="assets/brand/lo_teach.png" width="120" alt="Lo teaches"><br><b>explains</b><br><sub>mechanism, <i>why</i>, the trap, the fix</sub></td>
+<td align="center" width="20%"><img src="assets/brand/lo_think.png" width="120" alt="Lo thinks"><br><b>thinks out loud</b><br><sub>you see the reasoning live</sub></td>
+<td align="center" width="20%"><img src="assets/brand/lo_grumpy.png" width="120" alt="grumpy Lo"><br><b>grumpy mode</b><br><sub>a tired senior, opt-in only</sub></td>
+<td align="center" width="20%"><img src="assets/brand/lo_weights.png" width="120" alt="Lo looks at weights"><br><b>looks inside</b><br><sub>LoRA &amp; weight charts</sub></td>
+<td align="center" width="20%"><img src="assets/brand/lo_olymp.png" width="120" alt="Lo olympiad"><br><b>olympiad mode</b><br><sub>coming soon</sub></td>
+</tr>
+</table>
+
+Lo is the project mascot: a small terminal in a graduation cap — a tutor that lives on your laptop.
 
 ## Goal
 
@@ -43,7 +59,7 @@ can be that tutor — if the system around it is built so the model doesn't have
 | Agent asks instead of guessing on vague requests | 4 / 4 | ✅ 4 / 4 |
 | "What will this print?" answered from a real run | 100 % | ✅ 2 / 2 |
 | Multi-file tasks finished by the plan, not by luck | 4 / 4 hard tasks | measuring |
-| Verified examples, incl. Java, SQL analytics, PyTorch | ≥ 2,000 | 954 |
+| Verified examples, incl. Java, SQL analytics, PyTorch | ≥ 2,000 | 1,581 |
 | Runs fully offline on a MacBook Air M2 8 GB | yes | yes |
 
 **Non-goals:** competing with frontier cloud models on large refactors or deep reasoning; being a
@@ -155,6 +171,8 @@ Details: [docs/RESULTS.md](docs/RESULTS.md).
 
 ### 3. Look inside the network — with charts
 
+<img src="assets/brand/lo_weights.png" align="right" width="110" alt="">
+
 `wtools/weights.py` (CLI + MCP server, so the agent can call it):
 
 | Command | What you learn |
@@ -206,6 +224,8 @@ python3 wtools/install_loca.py              # give the agent the weight-analysis
 
 ## How it works
 
+<img src="assets/brand/lo_think.png" align="right" width="110" alt="">
+
 **The dataset pipeline (`ds/`)**
 
 1. A prompt with the category, topics, *what is already covered* and strict format rules goes to an
@@ -238,6 +258,8 @@ Ollama and llama.cpp backends. 98 tests.
   the actual 7B before it was adjusted.
 
 ## Roadmap
+
+<img src="assets/brand/lo_olymp.png" align="right" width="110" alt="">
 
 | Milestone | What | Status |
 |---|---|---|
